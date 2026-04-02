@@ -13,7 +13,12 @@ export const registerSchema = z.object({
     .min(3, "Username must be at least 3 characters.")
     .max(30, "Username must be 30 characters or less.")
     .regex(/^[a-zA-Z0-9_]+$/, "Use letters, numbers, or underscores only."),
-  password: z.string().min(8, "Password must be at least 8 characters."),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters.")
+    .regex(/[A-Z]/, "Include at least one uppercase letter.")
+    .regex(/[0-9]/, "Include at least one number.")
+    .regex(/[^A-Za-z0-9]/, "Include at least one special symbol."),
 });
 
 export const loginSchema = z.object({

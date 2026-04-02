@@ -14,7 +14,10 @@ const sora = Sora({
 
 export const metadata: Metadata = {
   title: "SyncUp",
-  description: "Discover people, communities, and activities that match your vibe.",
+  description: "Find your people. Not just profiles.",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 export default function RootLayout({

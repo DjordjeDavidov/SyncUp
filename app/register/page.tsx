@@ -37,6 +37,7 @@ export default async function RegisterPage() {
             submitLabel="Create account"
             title="Create your account"
             description="Use your email, choose a username, and pick a secure password."
+            showConfirmPassword
           />
         </div>
       </div>

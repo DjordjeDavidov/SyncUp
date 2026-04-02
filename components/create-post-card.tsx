@@ -36,7 +36,7 @@ export function CreatePostCard({ action, currentUser }: Props) {
   const [state, formAction] = useActionState(action, initialState);
 
   return (
-    <form action={formAction} className="surface-card rounded-[28px] p-5 sm:p-6" encType="multipart/form-data">
+    <form action={formAction} className="surface-card rounded-[28px] p-5 sm:p-6">
       <div className="flex gap-3">
         <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-500/30 text-sm font-semibold text-white">
           {currentUser.profile?.avatar_url ? (
