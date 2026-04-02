@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { FormState, fromZodError, profileSchema } from "@/lib/validation";
 import { getCurrentUserOrRedirect } from "@/server/auth";
 import { uploadImage } from "@/server/storage";
+import { revalidatePath } from "next/cache";
 
 const socialModeLabels: Record<social_mode, string> = {
   JUST_CHAT: "Just chat",
@@ -215,4 +216,215 @@ export async function onboardingAction(_: FormState, formData: FormData): Promis
   }
 
   redirect("/home");
+}
+
+const editProfileSchema = profileSchema.pick({
+  full_name: true,
+  username: true,
+  bio: true,
+}).extend({
+  social_mode: profileSchema.shape.social_mode.optional(),
+});
+
+export async function editProfileAction(_: FormState, formData: FormData): Promise<FormState> {
+  const currentUser = await getCurrentUserOrRedirect();
+  const parsed = editProfileSchema.safeParse({
+    full_name: formData.get("full_name"),
+    username: formData.get("username"),
+    bio: formData.get("bio") || "",
+    social_mode: currentUser.profile?.social_mode ?? social_mode.JUST_CHAT,
+  });
+
+  if (!parsed.success) {
+    return fromZodError(parsed.error);
+  }
+
+  const avatar = formData.get("avatar");
+  const banner = formData.get("banner");
+
+  try {
+    let avatarPayload:
+      | {
+          path: string;
+          url: string;
+        }
+      | undefined;
+    let bannerPayload:
+      | {
+          path: string;
+          url: string;
+        }
+      | undefined;
+
+    if (avatar instanceof File && avatar.size > 0) {
+      if (avatar.size > 5 * 1024 * 1024) {
+        return {
+          message: "Profile image is too large. Use a file smaller than 5MB.",
+        };
+      }
+
+      avatarPayload = await uploadImage({
+        file: avatar,
+        userId: currentUser.id,
+        kind: "avatar",
+      });
+    }
+
+    if (banner instanceof File && banner.size > 0) {
+      if (banner.size > 8 * 1024 * 1024) {
+        return {
+          message: "Banner image is too large. Use a file smaller than 8MB.",
+        };
+      }
+
+      bannerPayload = await uploadImage({
+        file: banner,
+        userId: currentUser.id,
+        kind: "cover",
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.users.update({
+        where: { id: currentUser.id },
+        data: {
+          username: parsed.data.username.toLowerCase(),
+        },
+      });
+
+      await tx.profiles.upsert({
+        where: { user_id: currentUser.id },
+        create: {
+          user_id: currentUser.id,
+          full_name: parsed.data.full_name,
+          bio: parsed.data.bio || null,
+          social_mode: currentUser.profile?.social_mode ?? social_mode.JUST_CHAT,
+          avatar_path: avatarPayload?.path,
+          avatar_url: avatarPayload?.url,
+          cover_path: bannerPayload?.path,
+          cover_url: bannerPayload?.url,
+        },
+        update: {
+          full_name: parsed.data.full_name,
+          bio: parsed.data.bio || null,
+          ...(avatarPayload
+            ? {
+                avatar_path: avatarPayload.path,
+                avatar_url: avatarPayload.url,
+              }
+            : {}),
+          ...(bannerPayload
+            ? {
+                cover_path: bannerPayload.path,
+                cover_url: bannerPayload.url,
+              }
+            : {}),
+        },
+      });
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return {
+        message: "That username is already in use.",
+      };
+    }
+
+    return {
+      message: error instanceof Error ? error.message : "Could not save your profile right now.",
+    };
+  }
+
+  revalidatePath("/profile");
+  revalidatePath(`/profile/${parsed.data.username.toLowerCase()}`);
+  redirect("/profile");
+}
+
+export async function followUserAction(targetUserId: string) {
+  const currentUser = await getCurrentUserOrRedirect();
+
+  if (currentUser.id === targetUserId) {
+    return { ok: false, message: "You cannot follow yourself." };
+  }
+
+  const targetUser = await prisma.users.findUnique({
+    where: { id: targetUserId },
+    select: { id: true, username: true },
+  });
+
+  if (!targetUser) {
+    return { ok: false, message: "That profile could not be found." };
+  }
+
+  const existingFollow = await prisma.follows.findUnique({
+    where: {
+      follower_id_following_id: {
+        follower_id: currentUser.id,
+        following_id: targetUserId,
+      },
+    },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.follows.upsert({
+      where: {
+        follower_id_following_id: {
+          follower_id: currentUser.id,
+          following_id: targetUserId,
+        },
+      },
+      create: {
+        follower_id: currentUser.id,
+        following_id: targetUserId,
+      },
+      update: {},
+    });
+
+    if (!existingFollow) {
+      await tx.notifications.create({
+        data: {
+          user_id: targetUserId,
+          actor_id: currentUser.id,
+          related_user_id: currentUser.id,
+          type: "FOLLOWED",
+          title: "started following you",
+          body: null,
+        },
+      });
+    }
+  });
+
+  revalidatePath("/profile");
+  revalidatePath(`/profile/${targetUser.username}`);
+  revalidatePath("/activity");
+
+  return { ok: true };
+}
+
+export async function unfollowUserAction(targetUserId: string) {
+  const currentUser = await getCurrentUserOrRedirect();
+
+  if (currentUser.id === targetUserId) {
+    return { ok: false, message: "You cannot unfollow yourself." };
+  }
+
+  const targetUser = await prisma.users.findUnique({
+    where: { id: targetUserId },
+    select: { id: true, username: true },
+  });
+
+  if (!targetUser) {
+    return { ok: false, message: "That profile could not be found." };
+  }
+
+  await prisma.follows.deleteMany({
+    where: {
+      follower_id: currentUser.id,
+      following_id: targetUserId,
+    },
+  });
+
+  revalidatePath("/profile");
+  revalidatePath(`/profile/${targetUser.username}`);
+
+  return { ok: true };
 }

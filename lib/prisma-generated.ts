@@ -3,5 +3,6 @@ export {
   PrismaClient,
   activity_status,
   community_visibility,
+  invite_visibility,
   social_mode,
-} from "../node_modules/.prisma/client";
+} from ".prisma/client";

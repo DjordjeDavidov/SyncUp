@@ -1,6 +1,6 @@
 import { createAdminSupabaseClient } from "@/lib/supabase";
 
-type UploadKind = "avatar" | "post";
+type UploadKind = "avatar" | "cover" | "post" | "community";
 
 function sanitizeFileName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9.-]+/g, "-");
@@ -25,6 +25,10 @@ export async function uploadImage({
   const preferredNames =
     kind === "avatar"
       ? ["avatar", "avatars", "profile", "profiles", "media", "uploads", "images"]
+      : kind === "cover"
+        ? ["cover", "covers", "banner", "banners", "profile", "profiles", "media", "uploads", "images"]
+      : kind === "community"
+        ? ["community", "communities", "media", "uploads", "images"]
       : ["posts", "post", "media", "uploads", "images"];
 
   const bucket =

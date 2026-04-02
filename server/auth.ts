@@ -13,6 +13,38 @@ export async function getCurrentUser() {
     where: { id: userId },
     include: {
       profiles: true,
+      communities: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      community_members: {
+        include: {
+          communities: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+      activities: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+      activity_participants: {
+        include: {
+          activities: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+        },
+      },
       user_languages: true,
       user_interests: true,
       user_vibe_tags: true,

@@ -10,6 +10,7 @@
   --border: #26314f;
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
+  --muted-foreground: #94a3b8;
   --danger: #ef4444;
   --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.28);
   --shadow-card: 0 18px 40px rgba(2, 6, 23, 0.32);
@@ -35,11 +36,16 @@ body {
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-inter), sans-serif;
+  background-image:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.03) 0.5px, transparent 0.5px),
+    radial-gradient(circle at 20% 20%, rgba(129, 140, 248, 0.06), transparent 28%);
+  background-size: 18px 18px, auto;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+  transition: all 200ms ease;
 }
 
 button,
@@ -47,6 +53,15 @@ input,
 select,
 textarea {
   font: inherit;
+  transition: all 200ms ease;
+}
+
+button {
+  transition: all 200ms ease;
+}
+
+button:active {
+  transform: scale(0.98);
 }
 
 ::selection {
@@ -61,6 +76,7 @@ textarea {
   background:
     radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 26%),
     radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 20%),
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.025), transparent 42%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.68), rgba(8, 12, 24, 0.55));
 }
 
@@ -85,6 +101,8 @@ textarea {
   background: linear-gradient(180deg, rgba(18, 24, 43, 0.9), rgba(10, 14, 28, 0.94));
   border: 1px solid rgba(71, 85, 105, 0.22);
   box-shadow: var(--shadow-card);
+  border-radius: 1rem;
+  transition: all 200ms ease;
 }
 
 .frosted-card {
@@ -92,6 +110,8 @@ textarea {
   border: 1px solid rgba(51, 65, 99, 0.72);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(14px);
+  border-radius: 1rem;
+  transition: all 200ms ease;
 }
 
 .section-title {
@@ -106,6 +126,8 @@ textarea {
     0 20px 60px rgba(2, 6, 23, 0.26),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(18px);
+  border-radius: 1rem;
+  transition: all 200ms ease;
 }
 
 .section-glow {
@@ -379,11 +401,7 @@ textarea {
 
 
 .surface-clickable {
-  transition:
-    transform 220ms ease,
-    box-shadow 220ms ease,
-    border-color 220ms ease,
-    background 220ms ease;
+  transition: all 200ms ease;
 }
 
 .surface-clickable:hover {
@@ -392,6 +410,10 @@ textarea {
   box-shadow:
     0 28px 78px rgba(2, 6, 23, 0.36),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.text-muted-foreground {
+  color: var(--muted-foreground);
 }
 
 .hero-surface {
@@ -422,6 +444,23 @@ textarea {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.012));
   border-radius: 2.5rem;
   pointer-events: none;
+}
+
+.animate-feed-in {
+  animation: feedIn 360ms ease forwards;
+  opacity: 0;
+}
+
+@keyframes feedIn {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes particleDrift {

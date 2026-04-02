@@ -1,16 +1,12 @@
-import { PrismaClient } from "@/lib/prisma-generated";
+import { PrismaClient } from ".prisma/client";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined;
+function createPrismaClient() {
+  return new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+  });
 }
 
 export const prisma =
-  globalThis.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalThis.prisma = prisma;
-}
+  process.env.NODE_ENV === "production"
+    ? createPrismaClient()
+    : createPrismaClient();

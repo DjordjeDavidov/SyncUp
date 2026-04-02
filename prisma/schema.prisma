@@ -20,9 +20,10 @@ model activities {
   city                  String?                 @db.VarChar(100)
   country               String?                 @db.VarChar(100)
   start_time            DateTime                @db.Timestamptz(6)
-  max_participants      Int
+  max_participants      Int?
   image_url             String?
   image_path            String?
+  invite_visibility     invite_visibility       @default(PUBLIC)
   status                activity_status         @default(OPEN)
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
@@ -38,6 +39,7 @@ model activities {
   @@index([city], map: "idx_activities_city")
   @@index([community_id], map: "idx_activities_community_id")
   @@index([creator_id], map: "idx_activities_creator_id")
+  @@index([invite_visibility], map: "idx_activities_invite_visibility")
   @@index([start_time], map: "idx_activities_start_time")
   @@index([status], map: "idx_activities_status")
 }
@@ -78,6 +80,8 @@ model communities {
   name                String                @db.VarChar(120)
   slug                String                @unique @db.VarChar(140)
   description         String?
+  category            String?               @db.VarChar(120)
+  custom_category     String?               @db.VarChar(120)
   city                String?               @db.VarChar(100)
   country             String?               @db.VarChar(100)
   visibility          community_visibility  @default(PUBLIC)
@@ -97,6 +101,18 @@ model communities {
   @@index([city], map: "idx_communities_city")
   @@index([owner_id], map: "idx_communities_owner_id")
   @@index([visibility], map: "idx_communities_visibility")
+}
+
+model follows {
+  follower_id                            String   @db.Uuid
+  following_id                           String   @db.Uuid
+  created_at                             DateTime @default(now()) @db.Timestamptz(6)
+  users_follows_follower_idTousers       users    @relation("follows_follower_idTousers", fields: [follower_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users_follows_following_idTousers      users    @relation("follows_following_idTousers", fields: [following_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([follower_id, following_id])
+  @@index([follower_id], map: "idx_follows_follower_id")
+  @@index([following_id], map: "idx_follows_following_id")
 }
 
 model community_interests {
@@ -180,27 +196,91 @@ model post_likes {
   @@id([post_id, user_id])
 }
 
+model post_saves {
+  post_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  posts      posts    @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([post_id, user_id])
+}
+
 model posts {
-  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  author_id     String          @db.Uuid
-  community_id  String?         @db.Uuid
-  activity_id   String?         @db.Uuid
-  content       String
-  image_url     String?
-  image_path    String?
-  created_at    DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
-  notifications notifications[]
-  post_likes    post_likes[]
-  activities    activities?     @relation(fields: [activity_id], references: [id], onUpdate: NoAction)
-  users         users           @relation(fields: [author_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  communities   communities?    @relation(fields: [community_id], references: [id], onUpdate: NoAction)
-  reports       reports[]
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  author_id        String          @db.Uuid
+  community_id     String?         @db.Uuid
+  activity_id      String?         @db.Uuid
+  post_type        post_type       @default(STANDARD_POST)
+  title            String?         @db.VarChar(180)
+  content          String
+  image_url        String?
+  image_path       String?
+  invite_visibility invite_visibility @default(PUBLIC)
+  location_text    String?         @db.VarChar(255)
+  starts_at        DateTime?       @db.Timestamptz(6)
+  max_participants Int?
+  poll_question    String?         @db.VarChar(280)
+  poll_ends_at     DateTime?       @db.Timestamptz(6)
+  created_at       DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime        @default(now()) @db.Timestamptz(6)
+  notifications    notifications[]
+  poll_options     poll_options[]
+  poll_votes       poll_votes[]
+  post_comments    post_comments[]
+  post_likes       post_likes[]
+  post_saves       post_saves[]
+  activities       activities?     @relation(fields: [activity_id], references: [id], onUpdate: NoAction)
+  users            users           @relation(fields: [author_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  communities      communities?    @relation(fields: [community_id], references: [id], onUpdate: NoAction)
+  reports          reports[]
 
   @@index([activity_id], map: "idx_posts_activity_id")
   @@index([author_id], map: "idx_posts_author_id")
   @@index([community_id], map: "idx_posts_community_id")
   @@index([created_at(sort: Desc)], map: "idx_posts_created_at")
+  @@index([invite_visibility], map: "idx_posts_invite_visibility")
+  @@index([post_type], map: "idx_posts_post_type")
+}
+
+model post_comments {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  post_id     String   @db.Uuid
+  user_id      String   @db.Uuid
+  content      String
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @db.Timestamptz(6)
+  posts        posts    @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_post_comments_created_at")
+  @@index([post_id], map: "idx_post_comments_post_id")
+  @@index([user_id], map: "idx_post_comments_user_id")
+}
+
+model poll_options {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  post_id     String      @db.Uuid
+  label       String      @db.VarChar(160)
+  position    Int
+  created_at  DateTime    @default(now()) @db.Timestamptz(6)
+  posts       posts       @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  poll_votes  poll_votes[]
+
+  @@index([post_id], map: "idx_poll_options_post_id")
+}
+
+model poll_votes {
+  option_id    String      @db.Uuid
+  post_id      String      @db.Uuid
+  user_id      String      @db.Uuid
+  created_at   DateTime    @default(now()) @db.Timestamptz(6)
+  poll_options poll_options @relation(fields: [option_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  posts        posts       @relation(fields: [post_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users       @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([post_id, user_id])
+  @@index([option_id], map: "idx_poll_votes_option_id")
 }
 
 model profiles {
@@ -303,10 +383,15 @@ model users {
   blocks_blocks_blocker_idTousers                                blocks[]                    @relation("blocks_blocker_idTousers")
   communities                                                    communities[]
   community_members                                              community_members[]
+  follows_follows_follower_idTousers                             follows[]                   @relation("follows_follower_idTousers")
+  follows_follows_following_idTousers                            follows[]                   @relation("follows_following_idTousers")
   notifications_notifications_actor_idTousers                    notifications[]             @relation("notifications_actor_idTousers")
   notifications_notifications_related_user_idTousers             notifications[]             @relation("notifications_related_user_idTousers")
   notifications_notifications_user_idTousers                     notifications[]             @relation("notifications_user_idTousers")
+  post_comments                                                  post_comments[]
   post_likes                                                     post_likes[]
+  post_saves                                                     post_saves[]
+  poll_votes                                                     poll_votes[]
   posts                                                          posts[]
   profiles                                                       profiles?
   reports_reports_reporter_idTousers                             reports[]                   @relation("reports_reporter_idTousers")
@@ -366,11 +451,25 @@ enum community_visibility {
 }
 
 enum notification_type {
+  FOLLOWED
   ACTIVITY_JOINED
   COMMUNITY_JOINED
   POST_LIKED
   VERIFICATION_UPDATED
   REPORT_UPDATED
+}
+
+enum invite_visibility {
+  PUBLIC
+  FOLLOWERS_FRIENDS
+}
+
+enum post_type {
+  STANDARD_POST
+  INVITE_POST
+  POLL_POST
+  COMMUNITY_POST
+  ACTIVITY_POST
 }
 
 enum profile_visibility {
