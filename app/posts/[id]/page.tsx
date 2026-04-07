@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ArrowLeft, CalendarDays, MapPin, Users } from "lucide-react";
 import { logoutAction } from "@/actions/feed";
 import { Navbar } from "@/components/navbar";
@@ -8,11 +8,21 @@ import { getCurrentUserOrRedirect } from "@/server/auth";
 import { prisma } from "@/lib/prisma";
 import { formatDistanceToNow } from "@/lib/utils";
 
-export default async function PostDetailPage({ params }: { params: { id: string } }) {
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function PostDetailPage({ params }: PageProps) {
+  const { id } = await params;
+
+  if (!id) {
+    notFound();
+  }
+
   const currentUser = await getCurrentUserOrRedirect();
 
   const post = await prisma.posts.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       users: {
         include: {
@@ -25,7 +35,7 @@ export default async function PostDetailPage({ params }: { params: { id: string 
   });
 
   if (!post) {
-    redirect("/communities");
+    notFound();
   }
 
   const author = post.users;

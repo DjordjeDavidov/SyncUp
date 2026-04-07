@@ -2,7 +2,9 @@
 
 import { Prisma } from "@/lib/prisma-generated";
 import { activity_status, community_visibility, invite_visibility } from "@/lib/prisma-generated";
+import { getCommunityCategoryLabel } from "@/lib/community-categories";
 import { prisma } from "@/lib/prisma";
+import { formatDistanceToNow } from "@/lib/utils";
 
 const feedPostInclude = {
   users: {
@@ -618,19 +620,36 @@ export async function getProfilePageDataByUsername(viewerId: string, username: s
 }
 
 export async function getMessagesPageData(userId: string) {
-  const [contacts, communityChats] = await Promise.all([
-    prisma.users.findMany({
+  const [threads, communityChats] = await Promise.all([
+    prisma.direct_message_threads.findMany({
       where: {
-        id: { not: userId },
-        profiles: {
-          isNot: null,
+        participants: {
+          some: {
+            user_id: userId,
+          },
         },
       },
       include: {
-        profiles: true,
+        participants: {
+          include: {
+            users: {
+              include: {
+                profiles: true,
+              },
+            },
+          },
+        },
+        messages: {
+          orderBy: {
+            created_at: "asc",
+          },
+          take: 40,
+        },
       },
-      orderBy: { created_at: "desc" },
-      take: 8,
+      orderBy: {
+        updated_at: "desc",
+      },
+      take: 12,
     }),
     prisma.communities.findMany({
       where: {
@@ -657,11 +676,30 @@ export async function getMessagesPageData(userId: string) {
   ]);
 
   return {
-    contacts: contacts.map((contact) => ({
-      id: contact.id,
-      username: contact.username,
-      profile: contact.profiles,
-    })),
+    conversations: threads
+      .map((thread) => {
+        const participant = thread.participants.find((item) => item.user_id !== userId)?.users;
+
+        if (!participant) {
+          return null;
+        }
+
+        return {
+          id: thread.id,
+          participant: {
+            id: participant.id,
+            username: participant.username,
+            profile: participant.profiles,
+          },
+          messages: thread.messages.map((message) => ({
+            id: message.id,
+            senderId: message.sender_id,
+            text: message.message,
+            createdAt: message.created_at,
+          })),
+        };
+      })
+      .filter((thread): thread is NonNullable<typeof thread> => Boolean(thread)),
     communityChats: communityChats.map((community) => ({
       id: community.id,
       slug: community.slug,
@@ -960,4 +998,523 @@ export async function getCommunitiesPageData(userId: string) {
     joinedCommunities,
     discoverCommunities: rankedCommunities,
   };
+}
+
+type ExploreTab = "all" | "people" | "communities" | "events" | "photos";
+type ExploreTheme = "all" | "outdoor" | "social" | "study-coding" | "free-weekend";
+
+type ExploreGridItem =
+  | {
+      type: "photo";
+      id: string;
+      href: string;
+      imageUrl: string;
+      title: string;
+      subtitle: string;
+      description: string;
+      meta: string[];
+      tags: string[];
+    }
+  | {
+      type: "community";
+      id: string;
+      href: string;
+      imageUrl: string | null;
+      title: string;
+      subtitle: string;
+      description: string;
+      meta: string[];
+      tags: string[];
+    }
+  | {
+      type: "event";
+      id: string;
+      href: string;
+      imageUrl: string | null;
+      title: string;
+      subtitle: string;
+      description: string;
+      meta: string[];
+      tags: string[];
+      isPublic: boolean;
+      isFree: boolean;
+    }
+  | {
+      type: "person";
+      id: string;
+      href: string;
+      imageUrl: string | null;
+      title: string;
+      subtitle: string;
+      description: string;
+      meta: string[];
+      tags: string[];
+    };
+
+export type ExplorePageData = {
+  items: ExploreGridItem[];
+  total: number;
+  hasMore: boolean;
+  currentPage: number;
+  searchQuery: string;
+  activeTab: ExploreTab;
+  activeTheme: ExploreTheme;
+  trendingCommunities: {
+    id: string;
+    name: string;
+    slug: string;
+    coverUrl: string | null;
+    memberCount: number;
+    categoryLabel: string;
+  }[];
+  happeningSoon: {
+    id: string;
+    title: string;
+    imageUrl: string | null;
+    location: string;
+    startsAt: Date;
+    participantCount: number;
+  }[];
+  peopleYouMayKnow: {
+    id: string;
+    username: string;
+    name: string;
+    avatarUrl: string | null;
+    bio: string;
+    context: string;
+  }[];
+};
+
+const EXPLORE_PAGE_SIZE = 24;
+
+function getExploreThemeTags(values: (string | null | undefined)[]) {
+  const joined = values
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const tags: ExploreTheme[] = ["all"];
+
+  if (/(hike|photo|travel|outdoor|nature|walk)/.test(joined)) {
+    tags.push("outdoor");
+  }
+
+  if (/(coffee|movie|board|basket|meetup|social|music)/.test(joined)) {
+    tags.push("social");
+  }
+
+  if (/(coding|study|language|tech|design)/.test(joined)) {
+    tags.push("study-coding");
+  }
+
+  return tags;
+}
+
+function includesSearch(haystack: string[], searchQuery: string) {
+  if (!searchQuery) {
+    return true;
+  }
+
+  return haystack.join(" ").toLowerCase().includes(searchQuery.toLowerCase());
+}
+
+function mixExploreItems(itemsByType: Record<ExploreGridItem["type"], ExploreGridItem[]>) {
+  const pattern: ExploreGridItem["type"][] = [
+    "photo",
+    "photo",
+    "community",
+    "photo",
+    "event",
+    "photo",
+    "person",
+    "photo",
+    "community",
+    "event",
+    "photo",
+    "person",
+  ];
+  const cursors: Record<ExploreGridItem["type"], number> = {
+    photo: 0,
+    community: 0,
+    event: 0,
+    person: 0,
+  };
+  const mixed: ExploreGridItem[] = [];
+  let exhaustedPasses = 0;
+
+  while (exhaustedPasses < pattern.length) {
+    let addedInLoop = false;
+
+    for (const type of pattern) {
+      const nextItem = itemsByType[type][cursors[type]];
+
+      if (!nextItem) {
+        exhaustedPasses += 1;
+        continue;
+      }
+
+      cursors[type] += 1;
+      mixed.push(nextItem);
+      addedInLoop = true;
+    }
+
+    if (!addedInLoop) {
+      break;
+    }
+
+    exhaustedPasses = 0;
+  }
+
+  return mixed;
+}
+
+export async function getExplorePageData(
+  userId: string,
+  options?: {
+    tab?: string;
+    theme?: string;
+    query?: string;
+    page?: number;
+  },
+): Promise<ExplorePageData> {
+  const activeTab: ExploreTab =
+    options?.tab === "people" ||
+    options?.tab === "communities" ||
+    options?.tab === "events" ||
+    options?.tab === "photos"
+      ? options.tab
+      : "all";
+  const activeTheme: ExploreTheme =
+    options?.theme === "outdoor" ||
+    options?.theme === "social" ||
+    options?.theme === "study-coding" ||
+    options?.theme === "free-weekend"
+      ? options.theme
+      : "all";
+  const currentPage = Math.max(1, options?.page ?? 1);
+  const searchQuery = (options?.query ?? "").trim();
+
+  const currentUser = await prisma.users.findUnique({
+    where: { id: userId },
+    include: {
+      profiles: true,
+      user_interests: { select: { interest_id: true } },
+      user_vibe_tags: { select: { vibe_tag_id: true } },
+      user_activity_preferences: { select: { category_id: true } },
+      community_members: { select: { community_id: true } },
+    },
+  });
+
+  const userInterestIds = new Set(currentUser?.user_interests.map((item) => item.interest_id) ?? []);
+  const userVibeIds = new Set(currentUser?.user_vibe_tags.map((item) => item.vibe_tag_id) ?? []);
+  const userActivityCategoryIds = new Set(currentUser?.user_activity_preferences.map((item) => item.category_id) ?? []);
+  const joinedCommunityIds = new Set(currentUser?.community_members.map((item) => item.community_id) ?? []);
+  const userCity = currentUser?.profiles?.city ?? null;
+  const userCountry = currentUser?.profiles?.country ?? null;
+  const now = new Date();
+
+  const [photoPosts, communities, activities, people] = await Promise.all([
+    prisma.posts.findMany({
+      where: {
+        image_url: { not: null },
+        OR: [
+          { post_type: { in: ["STANDARD_POST", "COMMUNITY_POST", "ACTIVITY_POST"] } },
+          { post_type: "INVITE_POST", invite_visibility: invite_visibility.PUBLIC },
+        ],
+      },
+      include: {
+        users: {
+          include: {
+            profiles: true,
+          },
+        },
+        communities: true,
+        activities: true,
+        post_likes: { select: { user_id: true } },
+        post_comments: { select: { id: true } },
+      },
+      orderBy: { created_at: "desc" },
+      take: 80,
+    }),
+    prisma.communities.findMany({
+      where: {
+        visibility: community_visibility.PUBLIC,
+      },
+      include: {
+        _count: {
+          select: {
+            community_members: true,
+            posts: true,
+          },
+        },
+        community_interests: { select: { interest_id: true } },
+        community_vibe_tags: { select: { vibe_tag_id: true } },
+      },
+      take: 24,
+    }),
+    prisma.activities.findMany({
+      where: {
+        invite_visibility: invite_visibility.PUBLIC,
+        status: activity_status.OPEN,
+        start_time: { gte: now },
+      },
+      include: {
+        communities: true,
+        users: {
+          include: {
+            profiles: true,
+          },
+        },
+        activity_categories: true,
+        _count: {
+          select: {
+            activity_participants: true,
+          },
+        },
+      },
+      take: 24,
+    }),
+    prisma.users.findMany({
+      where: {
+        id: { not: userId },
+        profiles: {
+          is: {
+            profile_visibility: "PUBLIC",
+          },
+        },
+      },
+      include: {
+        profiles: true,
+        user_interests: { select: { interest_id: true } },
+        user_vibe_tags: { select: { vibe_tag_id: true } },
+        community_members: { select: { community_id: true } },
+      },
+      take: 24,
+    }),
+  ]);
+
+  const rankedPhotos = photoPosts
+    .map((post) => {
+      const sameCity = Boolean(post.users.profiles?.city && userCity && post.users.profiles.city === userCity);
+      const sameCountry = Boolean(post.users.profiles?.country && userCountry && post.users.profiles.country === userCountry);
+      const joinedCommunityBoost = post.community_id && joinedCommunityIds.has(post.community_id) ? 4 : 0;
+      const likesScore = post.post_likes.length * 2;
+      const commentsScore = post.post_comments.length * 3;
+      const freshnessScore = Math.max(0, 18 - Math.floor((now.getTime() - post.created_at.getTime()) / (1000 * 60 * 60 * 24)));
+
+      return {
+        score: likesScore + commentsScore + freshnessScore + joinedCommunityBoost + (sameCity ? 4 : sameCountry ? 1 : 0),
+        card: {
+          type: "photo" as const,
+          id: post.id,
+          href: `/posts/${post.id}`,
+          imageUrl: post.image_url ?? post.activities?.image_url ?? createFallbackExploreImage(post.title ?? post.content, "photo"),
+          title: post.title ?? (post.communities?.name ? `${post.communities.name} highlight` : "Photo post"),
+          subtitle: `${post.users.profiles?.full_name ?? post.users.username} · @${post.users.username}`,
+          description: post.content,
+          meta: [
+            `${post.post_likes.length} likes`,
+            `${post.post_comments.length} comments`,
+            post.communities?.name ?? post.activities?.title ?? "Public post",
+          ],
+          tags: getExploreThemeTags([
+            post.title,
+            post.content,
+            post.communities?.name,
+            post.communities?.category,
+            post.activities?.title,
+            post.location_text,
+          ]),
+        },
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .map((item) => item.card);
+
+  const rankedCommunities = communities
+    .map((community) => {
+      const sharedInterestCount = community.community_interests.filter((item) => userInterestIds.has(item.interest_id)).length;
+      const sharedVibeCount = community.community_vibe_tags.filter((item) => userVibeIds.has(item.vibe_tag_id)).length;
+      const sameCity = Boolean(community.city && userCity && community.city === userCity);
+      const sameCountry = Boolean(community.country && userCountry && community.country === userCountry);
+      const score =
+        community._count.community_members +
+        community._count.posts * 1.5 +
+        sharedInterestCount * 8 +
+        sharedVibeCount * 5 +
+        (sameCity ? 12 : sameCountry ? 3 : 0);
+
+      return {
+        score,
+        card: {
+          type: "community" as const,
+          id: community.id,
+          href: `/communities/${community.slug}`,
+          imageUrl: community.cover_url ?? createFallbackExploreImage(community.name, "community"),
+          title: community.name,
+          subtitle: getCommunityCategoryLabel(community.category, community.custom_category) ?? "Open community",
+          description: community.description ?? "People, plans, and conversation around a shared interest.",
+          meta: [
+            `${community._count.community_members} members`,
+            [community.city, community.country].filter(Boolean).join(", ") || "Open location",
+          ],
+          tags: getExploreThemeTags([community.name, community.description, community.category, community.custom_category]),
+        },
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .map((item) => item.card);
+
+  const rankedEvents = activities
+    .map((activity) => {
+      const sameCity = Boolean(activity.city && userCity && activity.city === userCity);
+      const sameCountry = Boolean(activity.country && userCountry && activity.country === userCountry);
+      const categoryMatch = Boolean(activity.category_id && userActivityCategoryIds.has(activity.category_id));
+      const soonScore = Math.max(0, 20 - Math.floor((activity.start_time.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      const score = activity._count.activity_participants * 3 + soonScore + (categoryMatch ? 8 : 0) + (sameCity ? 10 : sameCountry ? 2 : 0);
+
+      return {
+        score,
+        card: {
+          type: "event" as const,
+          id: activity.id,
+          href: `/activity/${activity.id}`,
+          imageUrl: activity.image_url ?? activity.communities?.cover_url ?? createFallbackExploreImage(activity.title, "event"),
+          title: activity.title,
+          subtitle: formatDistanceToNow(activity.start_time),
+          description: activity.description ?? "Open public plan on SyncUp.",
+          meta: [
+            [activity.location_text, activity.city, activity.country].filter(Boolean).join(", "),
+            `${activity._count.activity_participants} going`,
+          ],
+          tags: [
+            ...getExploreThemeTags([activity.title, activity.description, activity.location_text, activity.activity_categories?.name]),
+            ...(activity.start_time.getTime() - now.getTime() <= 1000 * 60 * 60 * 24 * 7 ? (["free-weekend"] as ExploreTheme[]) : []),
+          ],
+          isPublic: activity.invite_visibility === invite_visibility.PUBLIC,
+          isFree: true,
+        },
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .map((item) => item.card);
+
+  const rankedPeople = people
+    .map((person) => {
+      const sharedInterests = person.user_interests.filter((item) => userInterestIds.has(item.interest_id)).length;
+      const sharedVibes = person.user_vibe_tags.filter((item) => userVibeIds.has(item.vibe_tag_id)).length;
+      const sharedCommunities = person.community_members.filter((item) => joinedCommunityIds.has(item.community_id)).length;
+      const sameCity = Boolean(person.profiles?.city && userCity && person.profiles.city === userCity);
+      const sameCountry = Boolean(person.profiles?.country && userCountry && person.profiles.country === userCountry);
+      const score = sharedInterests * 6 + sharedVibes * 4 + sharedCommunities * 7 + (sameCity ? 8 : sameCountry ? 2 : 0);
+
+      return {
+        score,
+        card: {
+          type: "person" as const,
+          id: person.id,
+          href: `/profile/${person.username}`,
+          imageUrl: person.profiles?.avatar_url ?? createFallbackExploreImage(person.username, "person"),
+          title: person.profiles?.full_name ?? person.username,
+          subtitle: `@${person.username}`,
+          description: person.profiles?.bio ?? "Open to meeting people with similar interests.",
+          meta: [
+            sharedCommunities > 0 ? `${sharedCommunities} shared communities` : sameCity ? person.profiles?.city ?? "Nearby" : "Discoverable profile",
+            sharedInterests > 0 ? `${sharedInterests} shared interests` : person.profiles?.country ?? "SyncUp",
+          ],
+          tags: getExploreThemeTags([person.profiles?.bio, person.profiles?.city, person.profiles?.country]),
+        },
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .map((item) => item.card);
+
+  const allCards = {
+    photo: rankedPhotos.filter((item) => includesSearch([item.title, item.subtitle, item.description, ...item.meta], searchQuery)),
+    community: rankedCommunities.filter((item) => includesSearch([item.title, item.subtitle, item.description, ...item.meta], searchQuery)),
+    event: rankedEvents.filter((item) => includesSearch([item.title, item.subtitle, item.description, ...item.meta], searchQuery)),
+    person: rankedPeople.filter((item) => includesSearch([item.title, item.subtitle, item.description, ...item.meta], searchQuery)),
+  };
+
+  const themedCards = Object.fromEntries(
+    Object.entries(allCards).map(([type, items]) => [
+      type,
+      activeTheme === "all" ? items : items.filter((item) => item.tags.includes(activeTheme)),
+    ]),
+  ) as Record<ExploreGridItem["type"], ExploreGridItem[]>;
+
+  const filteredCards =
+    activeTab === "all"
+      ? mixExploreItems(themedCards)
+      : activeTab === "photos"
+        ? themedCards.photo
+        : activeTab === "communities"
+          ? themedCards.community
+          : activeTab === "events"
+            ? themedCards.event
+            : themedCards.person;
+
+  const total = filteredCards.length;
+  const items = filteredCards.slice(0, currentPage * EXPLORE_PAGE_SIZE);
+
+  return {
+    items,
+    total,
+    hasMore: total > items.length,
+    currentPage,
+    searchQuery,
+    activeTab,
+    activeTheme,
+    trendingCommunities: rankedCommunities.slice(0, 4).map((community) => ({
+      id: community.id,
+      name: community.title,
+      slug: community.href.split("/").at(-1) ?? community.id,
+      coverUrl: community.imageUrl,
+      memberCount: Number(community.meta[0].split(" ")[0]) || 0,
+      categoryLabel: community.subtitle,
+    })),
+    happeningSoon: rankedEvents.slice(0, 4).map((event) => ({
+      id: event.id,
+      title: event.title,
+      imageUrl: event.imageUrl,
+      location: event.meta[0] ?? "Open location",
+      startsAt: activities.find((item) => item.id === event.id)?.start_time ?? now,
+      participantCount: Number(event.meta[1]?.split(" ")[0]) || 0,
+    })),
+    peopleYouMayKnow: rankedPeople.slice(0, 4).map((person) => ({
+      id: person.id,
+      username: person.subtitle.replace(/^@/, ""),
+      name: person.title,
+      avatarUrl: person.imageUrl,
+      bio: person.description,
+      context: person.meta[0] ?? "Discoverable profile",
+    })),
+  };
+}
+
+function createFallbackExploreImage(seed: string, kind: "photo" | "community" | "event" | "person") {
+  const tone =
+    kind === "photo"
+      ? ["#1d4ed8", "#06b6d4"]
+      : kind === "community"
+        ? ["#7c3aed", "#ec4899"]
+        : kind === "event"
+          ? ["#059669", "#38bdf8"]
+          : ["#0f172a", "#6366f1"];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-label="${seed}">
+    <defs>
+      <linearGradient id="g" x1="0%" x2="100%" y1="0%" y2="100%">
+        <stop offset="0%" stop-color="${tone[0]}"/>
+        <stop offset="100%" stop-color="${tone[1]}"/>
+      </linearGradient>
+    </defs>
+    <rect width="800" height="1000" fill="url(#g)"/>
+    <circle cx="650" cy="180" r="150" fill="rgba(255,255,255,0.08)"/>
+    <circle cx="180" cy="760" r="220" fill="rgba(255,255,255,0.06)"/>
+    <text x="72" y="886" fill="rgba(255,255,255,0.86)" font-size="44" font-family="Arial, sans-serif">${seed
+      .replace(/&/g, "&amp;")
+      .slice(0, 28)}</text>
+  </svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }

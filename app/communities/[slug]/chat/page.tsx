@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ArrowLeft, MessageCircleMore, SendHorizonal, Users } from "lucide-react";
 import { logoutAction } from "@/actions/feed";
 import { sendCommunityChatMessageAction } from "@/actions/messages";
@@ -46,12 +46,22 @@ type CommunityChatPageData = {
   messages: CommunityChatMessage[];
 };
 
-export default async function CommunityChatPage({ params }: { params: { slug: string } }) {
+type PageProps = {
+  params: Promise<{ slug: string }>;
+};
+
+export default async function CommunityChatPage({ params }: PageProps) {
+  const { slug } = await params;
+
+  if (!slug) {
+    notFound();
+  }
+
   const currentUser = await getCurrentUserOrRedirect();
-  const data = (await getCommunityChatPageData(currentUser.id, params.slug)) as CommunityChatPageData | null;
+  const data = (await getCommunityChatPageData(currentUser.id, slug)) as CommunityChatPageData | null;
 
   if (!data) {
-    redirect("/communities");
+    notFound();
   }
 
   const { community, messages } = data;

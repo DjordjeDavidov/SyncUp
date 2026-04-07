@@ -85,10 +85,11 @@ type ActivityItem = {
     name: string;
     username: string;
     avatarUrl: string | null;
+    href: string | null;
   };
   message: string;
   meta: string;
-  href: string;
+  metaHref: string | null;
 };
 
 const kindStyles = {
@@ -163,6 +164,13 @@ function resolveNotificationHref(record: NotificationRecord) {
   return "/activity";
 }
 
+function resolveActorHref(record: NotificationRecord) {
+  const actorUsername =
+    record.users_notifications_actor_idTousers?.username ?? record.users_notifications_related_user_idTousers?.username;
+
+  return actorUsername ? `/profile/${actorUsername}` : null;
+}
+
 function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
   return records.map((record) => {
     const actorName =
@@ -180,7 +188,8 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
       record.users_notifications_related_user_idTousers?.profiles?.avatar_url ??
       null;
     const createdAt = getCreatedAtValue(record.created_at);
-    const href = resolveNotificationHref(record);
+    const actorHref = resolveActorHref(record);
+    const metaHref = resolveNotificationHref(record);
 
     if (record.type === "FOLLOWED") {
       return {
@@ -192,10 +201,11 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
           name: actorName,
           username: actorUsername,
           avatarUrl,
+          href: actorHref,
         },
         message: "started following you",
         meta: "Open profile",
-        href,
+        metaHref: actorHref,
       };
     }
 
@@ -209,10 +219,11 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
           name: actorName,
           username: actorUsername,
           avatarUrl,
+          href: actorHref,
         },
         message: "liked your post",
         meta: record.posts?.title ?? record.title,
-        href,
+        metaHref,
       };
     }
 
@@ -226,10 +237,11 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
           name: actorName,
           username: actorUsername,
           avatarUrl,
+          href: actorHref,
         },
         message: "joined your activity",
         meta: record.activities?.title ?? record.title,
-        href,
+        metaHref,
       };
     }
 
@@ -243,10 +255,11 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
           name: actorName,
           username: actorUsername,
           avatarUrl,
+          href: actorHref,
         },
         message: "joined your community",
         meta: record.communities?.name ?? record.title,
-        href,
+        metaHref,
       };
     }
 
@@ -260,10 +273,11 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
           name: actorName,
           username: actorUsername,
           avatarUrl,
+          href: actorHref,
         },
         message: record.title,
         meta: record.body ?? "Profile update",
-        href,
+        metaHref,
       };
     }
 
@@ -276,10 +290,11 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
         name: actorName,
         username: actorUsername,
         avatarUrl,
+        href: actorHref,
       },
       message: record.title,
       meta: record.body ?? "SyncUp update",
-      href,
+      metaHref,
     };
   });
 }
@@ -347,17 +362,35 @@ function Section({
             >
               <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(129,140,248,0.1),transparent_30%)] opacity-70" />
               <div className="relative flex items-start gap-3 sm:gap-4">
-                <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[linear-gradient(135deg,rgba(99,102,241,0.32),rgba(59,130,246,0.16))] text-sm font-semibold text-white">
-                  {item.actor.avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img alt={item.actor.name} className="h-full w-full object-cover" src={item.actor.avatarUrl} />
-                  ) : (
-                    getInitials(item.actor.name)
-                  )}
-                  {item.unread ? (
-                    <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-slate-950 bg-indigo-400 shadow-[0_0_14px_rgba(129,140,248,0.7)]" />
-                  ) : null}
-                </div>
+                {item.actor.href ? (
+                  <Link
+                    aria-label={`Open ${item.actor.name}'s profile`}
+                    className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[linear-gradient(135deg,rgba(99,102,241,0.32),rgba(59,130,246,0.16))] text-sm font-semibold text-white cursor-pointer"
+                    href={item.actor.href}
+                  >
+                    {item.actor.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img alt={item.actor.name} className="h-full w-full object-cover" src={item.actor.avatarUrl} />
+                    ) : (
+                      getInitials(item.actor.name)
+                    )}
+                    {item.unread ? (
+                      <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-slate-950 bg-indigo-400 shadow-[0_0_14px_rgba(129,140,248,0.7)]" />
+                    ) : null}
+                  </Link>
+                ) : (
+                  <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[linear-gradient(135deg,rgba(99,102,241,0.32),rgba(59,130,246,0.16))] text-sm font-semibold text-white">
+                    {item.actor.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img alt={item.actor.name} className="h-full w-full object-cover" src={item.actor.avatarUrl} />
+                    ) : (
+                      getInitials(item.actor.name)
+                    )}
+                    {item.unread ? (
+                      <span className="pointer-events-none absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-slate-950 bg-indigo-400 shadow-[0_0_14px_rgba(129,140,248,0.7)]" />
+                    ) : null}
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${style.accent}`}>
@@ -369,11 +402,31 @@ function Section({
                     </p>
                   </div>
                   <p className="mt-3 text-sm leading-6 text-slate-200">
-                    <span className="font-semibold text-white">{item.actor.name}</span>{" "}
-                    <span className="text-muted-foreground">@{item.actor.username}</span>{" "}
+                    {item.actor.href ? (
+                      <Link className="font-semibold text-white cursor-pointer" href={item.actor.href}>
+                        {item.actor.name}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold text-white">{item.actor.name}</span>
+                    )}{" "}
+                    {item.actor.href ? (
+                      <Link className="text-muted-foreground cursor-pointer" href={item.actor.href}>
+                        @{item.actor.username}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">@{item.actor.username}</span>
+                    )}{" "}
                     <span>{item.message}</span>
                   </p>
-                  <p className="mt-2 text-sm text-muted-foreground">{item.meta}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {item.metaHref ? (
+                      <Link className="cursor-pointer" href={item.metaHref}>
+                        {item.meta}
+                      </Link>
+                    ) : (
+                      item.meta
+                    )}
+                  </p>
                 </div>
               </div>
             </article>
@@ -457,10 +510,11 @@ function buildSeedItems(
         name: getName(followPerson),
         username: followPerson.username,
         avatarUrl: followPerson.profile?.avatar_url ?? null,
+        href: `/profile/${followPerson.username}`,
       },
       message: "is active in your network",
       meta: "Suggested follow",
-      href: `/profile/${followPerson.username}`,
+      metaHref: `/profile/${followPerson.username}`,
     });
   }
 
@@ -476,10 +530,11 @@ function buildSeedItems(
         name: community.name,
         username: "syncup",
         avatarUrl: null,
+        href: null,
       },
       message: "Community you might like",
       meta: community.name,
-      href: `/communities/${community.slug}`,
+      metaHref: `/communities/${community.slug}`,
     });
   }
 
@@ -495,10 +550,11 @@ function buildSeedItems(
         name: currentUser.profile?.full_name ?? currentUser.username,
         username: currentUser.username,
         avatarUrl: currentUser.profile?.avatar_url ?? null,
+        href: `/profile/${currentUser.username}`,
       },
       message: "has upcoming plans",
       meta: activity.title,
-      href: `/activity/${activity.id}`,
+      metaHref: `/activity/${activity.id}`,
     });
   }
 

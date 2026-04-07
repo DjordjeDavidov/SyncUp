@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ArrowLeft, CalendarDays, MapPin, Users } from "lucide-react";
 import { logoutAction } from "@/actions/feed";
 import { Navbar } from "@/components/navbar";
@@ -8,11 +8,21 @@ import { getCurrentUserOrRedirect } from "@/server/auth";
 import { prisma } from "@/lib/prisma";
 import { formatDistanceToNow } from "@/lib/utils";
 
-export default async function ActivityDetailPage({ params }: { params: { id: string } }) {
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function ActivityDetailPage({ params }: PageProps) {
+  const { id } = await params;
+
+  if (!id) {
+    notFound();
+  }
+
   const currentUser = await getCurrentUserOrRedirect();
 
   const activity = await prisma.activities.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       communities: true,
       activity_participants: {
@@ -38,7 +48,7 @@ export default async function ActivityDetailPage({ params }: { params: { id: str
   });
 
   if (!activity) {
-    redirect("/activity");
+    notFound();
   }
 
   const isParticipant = activity.activity_participants.some((participant) => participant.user_id === currentUser.id);

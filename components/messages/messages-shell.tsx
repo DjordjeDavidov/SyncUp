@@ -33,7 +33,7 @@ type CommunityChat = {
 };
 
 type Props = {
-  contacts: MessageContact[];
+  conversations: Conversation[];
   communityChats: CommunityChat[];
   currentUser: MessageUser;
 };
@@ -51,14 +51,6 @@ type Conversation = {
   messages: ChatMessage[];
 };
 
-const seedMessagePairs = [
-  ["You around later? Thinking about grabbing coffee before the meetup.", "I should be free after 7. Send me the spot."],
-  ["That photo walk idea actually sounds fun.", "Let's do it. I can bring two friends too."],
-  ["Are you still looking for people for movie night?", "Yes, still have room if you're in."],
-  ["I saw your poll in the feed. My vote is definitely board games.", "Perfect. That was secretly my favorite option too."],
-  ["What community should I join first on SyncUp?", "Try the local hangouts one. It's active and super easygoing."],
-];
-
 function getParticipantName(contact: MessageContact) {
   return contact.profile?.full_name ?? contact.username;
 }
@@ -75,39 +67,10 @@ function getParticipantStatus(index: number) {
   return statuses[index % statuses.length];
 }
 
-function buildInitialConversations(currentUser: MessageUser, contacts: MessageContact[]): Conversation[] {
-  const baseTime = Date.now();
-
-  return contacts.map((contact, index) => {
-    const pair = seedMessagePairs[index % seedMessagePairs.length];
-    const firstAt = new Date(baseTime - (index + 2) * 1000 * 60 * 90);
-    const secondAt = new Date(firstAt.getTime() + 1000 * 60 * 14);
-
-    return {
-      id: `conversation-${contact.id}`,
-      participant: contact,
-      messages: [
-        {
-          id: `${contact.id}-message-a`,
-          senderId: currentUser.id,
-          text: pair[0],
-          createdAt: firstAt,
-        },
-        {
-          id: `${contact.id}-message-b`,
-          senderId: contact.id,
-          text: pair[1],
-          createdAt: secondAt,
-        },
-      ],
-    };
-  });
-}
-
-export function MessagesShell({ contacts, communityChats, currentUser }: Props) {
-  const [conversations, setConversations] = useState(() => buildInitialConversations(currentUser, contacts));
+export function MessagesShell({ conversations: initialConversations, communityChats, currentUser }: Props) {
+  const [conversations, setConversations] = useState(initialConversations);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
-    contacts[0] ? `conversation-${contacts[0].id}` : null,
+    initialConversations[0]?.id ?? null,
   );
   const [draft, setDraft] = useState("");
   const [searchValue, setSearchValue] = useState("");

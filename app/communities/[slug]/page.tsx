@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ArrowLeft, CalendarDays, Globe2, Lock, MapPin, Sparkles, Users } from "lucide-react";
 import { logoutAction } from "@/actions/feed";
 import { joinCommunityAction, leaveCommunityAction } from "@/actions/communities";
@@ -83,12 +83,22 @@ async function handleJoinPrivate(formData: FormData) {
   await joinCommunityAction(communityId);
 }
 
-export default async function CommunityPage({ params }: { params: { slug: string } }) {
+type PageProps = {
+  params: Promise<{ slug: string }>;
+};
+
+export default async function CommunityPage({ params }: PageProps) {
+  const { slug } = await params;
+
+  if (!slug) {
+    notFound();
+  }
+
   const currentUser = await getCurrentUserOrRedirect();
   const now = new Date();
 
   const community = await prisma.communities.findUnique({
-    where: { slug: params.slug },
+    where: { slug },
     include: {
       users: {
         include: {
@@ -160,7 +170,7 @@ export default async function CommunityPage({ params }: { params: { slug: string
   });
 
   if (!community) {
-    redirect("/communities");
+    notFound();
   }
 
   const categoryLabel = getCommunityCategoryLabel(community.category, community.custom_category);

@@ -24,7 +24,6 @@ type NavbarProps = {
 export function Navbar({ user, logoutAction }: NavbarProps) {
   const [isVisible, setIsVisible] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [activeHash, setActiveHash] = useState("");
   const lastScrollY = useRef(0);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -50,19 +49,6 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
-
-  useEffect(() => {
-    const syncHash = () => {
-      setActiveHash(window.location.hash);
-    };
-
-    syncHash();
-    window.addEventListener("hashchange", syncHash);
-
-    return () => {
-      window.removeEventListener("hashchange", syncHash);
     };
   }, []);
 
@@ -106,19 +92,19 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
       href: "/home",
       label: "Home",
       icon: Home,
-      active: pathname === "/home" && activeHash !== "#people-discover" && activeHash !== "#community-discover",
+      active: pathname === "/home",
     },
     {
-      href: "/home#people-discover",
+      href: "/explore",
       label: "Explore",
       icon: Sparkles,
-      active: pathname === "/home" && activeHash === "#people-discover",
+      active: pathname.startsWith("/explore"),
     },
     {
       href: "/communities",
       label: "Communities",
       icon: Users2,
-      active: pathname === "/communities",
+      active: pathname.startsWith("/communities"),
     },
   ] as const;
 

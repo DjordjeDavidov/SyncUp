@@ -15,16 +15,16 @@ export function MobileNav() {
       active: pathname === "/home",
     },
     {
-      href: "/home#people-discover",
+      href: "/explore",
       label: "Explore",
       icon: Sparkles,
-      active: pathname === "/home",
+      active: pathname.startsWith("/explore"),
     },
     {
       href: "/profile",
       label: "Profile",
       icon: UserRound,
-      active: pathname === "/profile",
+      active: pathname.startsWith("/profile"),
     },
   ] as const;
 
