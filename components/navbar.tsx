@@ -124,7 +124,7 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
 
   const profileMenuItems = [
     { href: "/profile", label: "View Profile" },
-    { href: "/onboarding", label: "Settings" },
+    { href: "/settings", label: "Settings" },
     { href: "/communities", label: "My Communities" },
   ] as const;
 

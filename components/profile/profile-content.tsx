@@ -17,7 +17,7 @@ import { InteractionState } from "@/lib/interaction-state";
 import { SyncUpPost } from "@/lib/post-types";
 import { formatDistanceToNow } from "@/lib/utils";
 
-type TabKey = "all" | "posts" | "media" | "invites" | "polls" | "communities" | "activity" | "saved";
+type TabKey = "all" | "posts" | "media" | "invites" | "activity" | "saved";
 
 type TimelineItem =
   | {
@@ -62,8 +62,6 @@ const TAB_CONFIG: { key: TabKey; label: string; icon: React.ComponentType<{ clas
   { key: "posts", label: "Posts", icon: MessageSquareText },
   { key: "media", label: "Media", icon: ImageIcon },
   { key: "invites", label: "Invites", icon: Sparkles },
-  { key: "polls", label: "Polls", icon: Vote },
-  { key: "communities", label: "Communities", icon: Users },
   { key: "activity", label: "Activity", icon: CalendarClock },
   { key: "saved", label: "Saved", icon: SquareLibrary },
 ];
@@ -258,24 +256,6 @@ export function ProfileContent({
           kind: "posts" as const,
           items: invitePosts,
         };
-      case "polls":
-        return {
-          kind: "posts" as const,
-          items: pollPosts,
-        };
-      case "communities":
-        return {
-          kind: "mixed" as const,
-          items: [
-            ...communityPosts.map((post) => ({
-              id: `post-${post.id}`,
-              kind: "post" as const,
-              createdAt: post.createdAt,
-              post,
-            })),
-            ...communityTimelineItems,
-          ].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime()),
-        };
       case "activity":
         return {
           kind: "mixed" as const,
@@ -358,22 +338,6 @@ export function ProfileContent({
             description="Invite-style plans will show up here as soon as this profile starts organizing ideas."
           />
         );
-      case "polls":
-        return (
-          <EmptyState
-            icon={Vote}
-            title="No polls yet"
-            description="This profile is ready for opinion drops and quick community questions whenever a poll gets posted."
-          />
-        );
-      case "communities":
-        return (
-          <EmptyState
-            icon={Users}
-            title="No community content yet"
-            description="Community posts and memberships tied to this profile will show here once they start participating."
-          />
-        );
       case "activity":
         return (
           <EmptyState
@@ -405,7 +369,7 @@ export function ProfileContent({
   return (
     <div className="space-y-6">
       <div className="overflow-x-auto">
-        <div className="inline-flex min-w-full gap-2 rounded-2xl border border-white/8 bg-white/[0.03] p-2">
+        <div className="inline-flex min-w-full gap-2 rounded-3xl border border-white/10 bg-slate-950/70 p-2 shadow-[0_10px_40px_rgba(0,0,0,0.15)]">
           {TAB_CONFIG.map((tab) => {
             if (tab.key === "saved" && !isOwner) {
               return null;
@@ -416,10 +380,10 @@ export function ProfileContent({
 
             return (
               <button
-                className={`inline-flex min-w-fit items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
+                className={`inline-flex min-w-fit items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
                   isActive
-                    ? "bg-[linear-gradient(135deg,rgba(99,102,241,0.24),rgba(59,130,246,0.16))] text-white shadow-[0_10px_24px_rgba(30,41,59,0.24)]"
-                    : "text-muted-foreground hover:bg-white/[0.05] hover:text-slate-100"
+                    ? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-[0_14px_24px_rgba(99,102,241,0.18)]"
+                    : "text-slate-300 hover:bg-white/[0.06] hover:text-white"
                 }`}
                 key={tab.key}
                 onClick={() => startTransition(() => setActiveTab(tab.key))}

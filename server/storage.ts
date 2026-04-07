@@ -1,3 +1,5 @@
+"use server";
+
 import { createAdminSupabaseClient } from "@/lib/supabase";
 
 type UploadKind = "avatar" | "cover" | "post" | "community";

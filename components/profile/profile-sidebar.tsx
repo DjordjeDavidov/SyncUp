@@ -15,6 +15,8 @@ export function ProfileSidebar({ user, communities, activities, posts }: Props) 
     .filter((activity) => activity.start_time.getTime() >= Date.now())
     .slice(0, 3);
   const recentMedia = posts.filter((post) => Boolean(post.image_url)).slice(0, 6);
+  const interestTags = user.user_interests.map((entry) => entry.interests.name);
+  const vibeTags = user.user_vibe_tags.map((entry) => entry.vibe_tags.name);
 
   return (
     <aside className="space-y-6">
@@ -25,9 +27,48 @@ export function ProfileSidebar({ user, communities, activities, posts }: Props) 
             Highlights
           </h2>
         </div>
-        <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          {user.profile?.full_name ?? user.username} is using SyncUp to discover people, join communities, and keep the momentum going through casual updates.
-        </p>
+        <div className="mt-4 space-y-4 text-sm leading-6 text-muted-foreground">
+          <p className="text-slate-200">Profile snapshot</p>
+          {interestTags.length > 0 ? (
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Interests</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {interestTags.slice(0, 5).map((tag) => (
+                  <span key={tag} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {vibeTags.length > 0 ? (
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Vibes</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {vibeTags.slice(0, 5).map((tag) => (
+                  <span key={tag} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Communities</p>
+              <p className="mt-1 text-lg font-semibold text-white">{communities.length}</p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-slate-500">Activities</p>
+              <p className="mt-1 text-lg font-semibold text-white">{activities.length}</p>
+            </div>
+          </div>
+          {!interestTags.length && !vibeTags.length ? (
+            <p className="rounded-2xl border border-dashed border-white/8 bg-white/[0.03] px-4 py-4 text-sm text-muted-foreground">
+              Highlights will appear here as this profile fills out interests and vibe tags.
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <section className="surface-card rounded-2xl p-6">

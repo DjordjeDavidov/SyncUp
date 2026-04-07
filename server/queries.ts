@@ -1,3 +1,5 @@
+"use server";
+
 import { Prisma } from "@/lib/prisma-generated";
 import { activity_status, community_visibility, invite_visibility } from "@/lib/prisma-generated";
 import { prisma } from "@/lib/prisma";
@@ -110,39 +112,122 @@ export async function getOnboardingData() {
 
 export async function getHomeFeedData(userId: string) {
   const inviteEligibleAuthorIds = await getInviteEligibleAuthorIds(userId);
-  const [posts, people, communities, activities] = await Promise.all([
+
+  const [posts, currentUser] = await Promise.all([
     prisma.posts.findMany({
       where: getVisiblePostsWhere(userId, inviteEligibleAuthorIds),
       orderBy: { created_at: "desc" },
       take: 20,
       include: feedPostInclude,
     }),
+    prisma.users.findUnique({
+      where: { id: userId },
+      include: {
+        profiles: true,
+        user_interests: { select: { interest_id: true } },
+        user_vibe_tags: { select: { vibe_tag_id: true } },
+        user_activity_preferences: { select: { category_id: true } },
+        community_members: { select: { community_id: true } },
+      },
+    }),
+  ]);
+
+  if (!currentUser) {
+    throw new Error("Current user not found.");
+  }
+
+  const userCity = currentUser.profiles?.city || null;
+  const userCountry = currentUser.profiles?.country || null;
+  const userInterestIds = currentUser.user_interests.map((interest) => interest.interest_id);
+  const userVibeTagIds = currentUser.user_vibe_tags.map((tag) => tag.vibe_tag_id);
+  const userActivityCategoryIds = currentUser.user_activity_preferences.map((pref) => pref.category_id);
+  const joinedCommunityIds = currentUser.community_members.map((membership) => membership.community_id);
+
+  const peopleFilterOr: Prisma.usersWhereInput[] = [];
+  if (userCity) {
+    peopleFilterOr.push({ profiles: { city: userCity } });
+  }
+  if (userCountry) {
+    peopleFilterOr.push({ profiles: { country: userCountry } });
+  }
+  if (userInterestIds.length > 0) {
+    peopleFilterOr.push({ user_interests: { some: { interest_id: { in: userInterestIds } } } });
+  }
+  if (userVibeTagIds.length > 0) {
+    peopleFilterOr.push({ user_vibe_tags: { some: { vibe_tag_id: { in: userVibeTagIds } } } });
+  }
+  if (joinedCommunityIds.length > 0) {
+    peopleFilterOr.push({ community_members: { some: { community_id: { in: joinedCommunityIds } } } });
+  }
+
+  const hasUserPreferences = userInterestIds.length > 0 || userVibeTagIds.length > 0;
+
+  // Community recommendation logic:
+  // 1. If user has interests or vibe tags, fetch communities that match at least one of them, ordered by popularity (member count).
+  // 2. Otherwise, fetch all public communities ordered by popularity.
+  // 3. Score each community based on: interest matches (3pts each), vibe matches (2pts each), location match (4pts city, 1pt country), popularity bonus (min(members/25, 2)).
+  // 4. Filter to communities with score >=1 (to avoid irrelevant), sort by score desc, take top 4.
+  // 5. If fewer than 4, add popular communities not already selected to fill up to 4.
+  // This ensures relevant communities are prioritized, with sensible fallbacks to popular ones.
+  const communityWhere: Prisma.communitiesWhereInput = {
+    visibility: community_visibility.PUBLIC,
+    owner_id: { not: userId },
+    community_members: {
+      none: { user_id: userId },
+    },
+  };
+
+  if (hasUserPreferences) {
+    communityWhere.OR = [
+      ...(userInterestIds.length > 0
+        ? [{ community_interests: { some: { interest_id: { in: userInterestIds } } } }]
+        : []),
+      ...(userVibeTagIds.length > 0
+        ? [{ community_vibe_tags: { some: { vibe_tag_id: { in: userVibeTagIds } } } }]
+        : []),
+    ];
+  }
+
+  const [peopleCandidates, communityCandidates, activityCandidates] = await Promise.all([
     prisma.users.findMany({
       where: {
         id: { not: userId },
-        profiles: {
-          isNot: null,
-        },
+        profiles: { isNot: null },
+        OR: peopleFilterOr.length > 0 ? peopleFilterOr : [{ profiles: { isNot: null } }],
       },
       include: {
         profiles: true,
+        user_interests: true,
+        user_vibe_tags: true,
+        community_members: true,
       },
-      orderBy: { created_at: "desc" },
-      take: 4,
+      take: 40,
     }),
     prisma.communities.findMany({
-      where: {
-        visibility: community_visibility.PUBLIC,
-      },
-      orderBy: { created_at: "desc" },
-      take: 4,
+      where: communityWhere,
       include: {
         _count: {
           select: {
             community_members: true,
           },
         },
+        community_interests: {
+          select: {
+            interest_id: true,
+          },
+        },
+        community_vibe_tags: {
+          select: {
+            vibe_tag_id: true,
+          },
+        },
       },
+      orderBy: {
+        community_members: {
+          _count: "desc",
+        },
+      },
+      take: 40,
     }),
     prisma.activities.findMany({
       where: {
@@ -151,22 +236,172 @@ export async function getHomeFeedData(userId: string) {
           gte: new Date(),
         },
         activity_participants: {
-          some: {
+          none: {
             user_id: userId,
           },
         },
+        OR: [
+          { community_id: null },
+          { communities: { visibility: community_visibility.PUBLIC } },
+          ...(joinedCommunityIds.length > 0
+            ? [{ community_id: { in: joinedCommunityIds } }]
+            : []),
+        ],
       },
       orderBy: { start_time: "asc" },
-      take: 4,
+      take: 50,
       include: {
         _count: {
           select: {
             activity_participants: true,
           },
         },
+        communities: true,
       },
     }),
   ]);
+
+  const people = peopleCandidates
+    .map((person) => {
+      const interestMatchCount = person.user_interests.filter((interest) =>
+        userInterestIds.includes(interest.interest_id),
+      ).length;
+      const vibeMatchCount = person.user_vibe_tags.filter((tag) =>
+        userVibeTagIds.includes(tag.vibe_tag_id),
+      ).length;
+      const sharedCommunityCount = person.community_members.filter((membership) =>
+        joinedCommunityIds.includes(membership.community_id),
+      ).length;
+      const sameCity = person.profiles?.city && userCity && person.profiles.city === userCity;
+      const sameCountry = person.profiles?.country && userCountry && person.profiles.country === userCountry;
+
+      return {
+        id: person.id,
+        username: person.username,
+        profiles: person.profiles,
+        score:
+          interestMatchCount * 3 +
+          vibeMatchCount * 2 +
+          sharedCommunityCount * 4 +
+          (sameCity ? 4 : sameCountry ? 1 : 0),
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map(({ score, ...person }) => person);
+
+  let communities = communityCandidates
+    .map((community) => {
+      const interestMatchCount = community.community_interests.filter((interest) =>
+        userInterestIds.includes(interest.interest_id),
+      ).length;
+      const vibeMatchCount = community.community_vibe_tags.filter((tag) =>
+        userVibeTagIds.includes(tag.vibe_tag_id),
+      ).length;
+      const sameCity = community.city && userCity && community.city === userCity;
+      const sameCountry = community.country && userCountry && community.country === userCountry;
+
+      return {
+        ...community,
+        score:
+          interestMatchCount * 3 +
+          vibeMatchCount * 2 +
+          (sameCity ? 4 : sameCountry ? 1 : 0) +
+          Math.min(community._count.community_members / 25, 2),
+      };
+    })
+    .filter((community) => community.score >= 1) // Only include communities with at least minimal relevance
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map(({ score, ...community }) => community);
+
+  // Fallback: if fewer than 4 communities, add popular ones not already selected
+  if (communities.length < 4) {
+    const selectedIds = communities.map((c) => c.id);
+    const additionalCommunities = await prisma.communities.findMany({
+      where: {
+        visibility: community_visibility.PUBLIC,
+        owner_id: { not: userId },
+        community_members: {
+          none: { user_id: userId },
+        },
+        id: { notIn: selectedIds },
+      },
+      include: {
+        _count: {
+          select: {
+            community_members: true,
+          },
+        },
+        community_interests: {
+          select: {
+            interest_id: true,
+          },
+        },
+        community_vibe_tags: {
+          select: {
+            vibe_tag_id: true,
+          },
+        },
+      },
+      orderBy: {
+        community_members: {
+          _count: "desc",
+        },
+      },
+      take: 4 - communities.length,
+    });
+
+    const scoredAdditional = additionalCommunities.map((community) => {
+      const interestMatchCount = community.community_interests.filter((interest) =>
+        userInterestIds.includes(interest.interest_id),
+      ).length;
+      const vibeMatchCount = community.community_vibe_tags.filter((tag) =>
+        userVibeTagIds.includes(tag.vibe_tag_id),
+      ).length;
+      const sameCity = community.city && userCity && community.city === userCity;
+      const sameCountry = community.country && userCountry && community.country === userCountry;
+
+      return {
+        ...community,
+        score:
+          interestMatchCount * 3 +
+          vibeMatchCount * 2 +
+          (sameCity ? 4 : sameCountry ? 1 : 0) +
+          Math.min(community._count.community_members / 25, 2),
+      };
+    });
+
+    communities = [...communities, ...scoredAdditional];
+  }
+
+  const activities = activityCandidates
+    .map((activity) => {
+      const sameCity = activity.city && userCity && activity.city === userCity;
+      const sameCountry = activity.country && userCountry && activity.country === userCountry;
+      const categoryMatch =
+        activity.category_id && userActivityCategoryIds.includes(activity.category_id);
+      const communityMatch =
+        activity.community_id && joinedCommunityIds.includes(activity.community_id);
+
+      return {
+        ...activity,
+        score:
+          (sameCity ? 4 : sameCountry ? 1 : 0) +
+          (categoryMatch ? 4 : 0) +
+          (communityMatch ? 3 : 0) +
+          Math.min(activity._count.activity_participants / 15, 2),
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+
+      return a.start_time.getTime() - b.start_time.getTime();
+    })
+    .slice(0, 4)
+    .map(({ score, ...activity }) => activity);
 
   return {
     posts,
@@ -383,19 +618,43 @@ export async function getProfilePageDataByUsername(viewerId: string, username: s
 }
 
 export async function getMessagesPageData(userId: string) {
-  const contacts = await prisma.users.findMany({
-    where: {
-      id: { not: userId },
-      profiles: {
-        isNot: null,
+  const [contacts, communityChats] = await Promise.all([
+    prisma.users.findMany({
+      where: {
+        id: { not: userId },
+        profiles: {
+          isNot: null,
+        },
       },
-    },
-    include: {
-      profiles: true,
-    },
-    orderBy: { created_at: "desc" },
-    take: 8,
-  });
+      include: {
+        profiles: true,
+      },
+      orderBy: { created_at: "desc" },
+      take: 8,
+    }),
+    prisma.communities.findMany({
+      where: {
+        community_members: {
+          some: {
+            user_id: userId,
+          },
+        },
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        cover_url: true,
+        _count: {
+          select: {
+            community_members: true,
+          },
+        },
+      },
+      orderBy: { updated_at: "desc" },
+      take: 12,
+    }),
+  ]);
 
   return {
     contacts: contacts.map((contact) => ({
@@ -403,6 +662,90 @@ export async function getMessagesPageData(userId: string) {
       username: contact.username,
       profile: contact.profiles,
     })),
+    communityChats: communityChats.map((community) => ({
+      id: community.id,
+      slug: community.slug,
+      name: community.name,
+      coverUrl: community.cover_url,
+      memberCount: community._count.community_members,
+    })),
+  };
+}
+
+export async function getCommunityChatPageData(userId: string, communitySlug: string) {
+  const community = await prisma.communities.findUnique({
+    where: { slug: communitySlug },
+    include: {
+      users: {
+        include: {
+          profiles: true,
+        },
+      },
+      community_chat: {
+        include: {
+          messages: {
+            orderBy: { created_at: "asc" },
+            include: {
+              users: {
+                include: {
+                  profiles: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      community_members: {
+        where: {
+          user_id: userId,
+        },
+        select: {
+          role: true,
+        },
+      },
+      _count: {
+        select: {
+          community_members: true,
+        },
+      },
+    },
+  });
+
+  if (!community) {
+    return null;
+  }
+
+  const isMember = community.community_members.length > 0;
+  const canChat = isMember;
+
+  return {
+    community: {
+      id: community.id,
+      slug: community.slug,
+      name: community.name,
+      description: community.description,
+      visibility: community.visibility,
+      coverUrl: community.cover_url,
+      owner: {
+        id: community.users.id,
+        username: community.users.username,
+        profile: community.users.profiles,
+      },
+      memberCount: community._count.community_members,
+      isMember,
+      canChat,
+    },
+    messages:
+      community.community_chat?.messages.map((message) => ({
+        id: message.id,
+        sender: {
+          id: message.users.id,
+          username: message.users.username,
+          profile: message.users.profiles,
+        },
+        text: message.message,
+        createdAt: message.created_at,
+      })) ?? [],
   };
 }
 
@@ -418,9 +761,30 @@ export async function getActivityPageData(userId: string) {
             profiles: true,
           },
         },
-        posts: true,
-        communities: true,
-        activities: true,
+        users_notifications_related_user_idTousers: {
+          include: {
+            profiles: true,
+          },
+        },
+        posts: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+        communities: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+        activities: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
       },
       orderBy: { created_at: "desc" },
       take: 20,
@@ -461,7 +825,7 @@ export async function getActivityPageData(userId: string) {
 }
 
 export async function getCommunitiesPageData(userId: string) {
-  const [ownedCommunities, joinedMemberships, discoverCommunities] = await Promise.all([
+  const [ownedCommunities, joinedMemberships, userInterests, userVibeTags, recommendedCommunities] = await Promise.all([
     prisma.communities.findMany({
       where: {
         owner_id: userId,
@@ -492,19 +856,36 @@ export async function getCommunitiesPageData(userId: string) {
       },
       orderBy: { joined_at: "desc" },
     }),
+    prisma.user_interests.findMany({
+      where: { user_id: userId },
+      select: { interest_id: true },
+    }),
+    prisma.user_vibe_tags.findMany({
+      where: { user_id: userId },
+      select: { vibe_tag_id: true },
+    }),
     prisma.communities.findMany({
       where: {
         visibility: community_visibility.PUBLIC,
+        owner_id: { not: userId },
+        community_members: {
+          none: { user_id: userId },
+        },
       },
-      orderBy: { created_at: "desc" },
-      take: 8,
       include: {
         _count: {
           select: {
             community_members: true,
           },
         },
+        community_interests: {
+          select: { interest_id: true },
+        },
+        community_vibe_tags: {
+          select: { vibe_tag_id: true },
+        },
       },
+      take: 50,
     }),
   ]);
 
@@ -512,9 +893,71 @@ export async function getCommunitiesPageData(userId: string) {
     .map((membership) => membership.communities)
     .filter((community) => community.owner_id !== userId);
 
+  // Score and rank recommended communities based on user interests and vibe tags
+  const userInterestIds = new Set(userInterests.map((ui) => ui.interest_id));
+  const userVibeTagIds = new Set(userVibeTags.map((uvt) => uvt.vibe_tag_id));
+
+  const rankedCommunities = recommendedCommunities
+    .map((community) => {
+      let score = 0;
+
+      // Bonus for matching interests
+      const interestMatches = community.community_interests.filter((ci) =>
+        userInterestIds.has(ci.interest_id),
+      ).length;
+      score += interestMatches * 3;
+
+      // Bonus for matching vibe tags
+      const vibeMatches = community.community_vibe_tags.filter((cvt) =>
+        userVibeTagIds.has(cvt.vibe_tag_id),
+      ).length;
+      score += vibeMatches * 2;
+
+      // Slight bonus for active communities (more members = more active)
+      score += Math.min(community._count.community_members / 20, 2);
+
+      return { ...community, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+    .map(({ score, ...community }) => community);
+
+  // If not enough personalized recommendations, fill with recently created communities
+  if (rankedCommunities.length < 4) {
+    const additionalCommunities = await prisma.communities.findMany({
+      where: {
+        visibility: community_visibility.PUBLIC,
+        owner_id: { not: userId },
+        community_members: {
+          none: { user_id: userId },
+        },
+        id: {
+          notIn: rankedCommunities.map((c) => c.id),
+        },
+      },
+      orderBy: { created_at: "desc" },
+      take: 8 - rankedCommunities.length,
+      include: {
+        _count: {
+          select: {
+            community_members: true,
+          },
+        },
+        community_interests: {
+          select: { interest_id: true },
+        },
+        community_vibe_tags: {
+          select: { vibe_tag_id: true },
+        },
+      },
+    });
+
+    rankedCommunities.push(...additionalCommunities);
+  }
+
   return {
     ownedCommunities,
     joinedCommunities,
-    discoverCommunities,
+    discoverCommunities: rankedCommunities,
   };
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { CalendarCheck2, Heart, MessageCircle, Sparkles, UserPlus, Users } from "lucide-react";
-import { useMemo } from "react";
+import Link from "next/link";
+import { CalendarCheck2, CheckCircle2, Heart, MessageCircle, Sparkles, Trash2, UserPlus, Users } from "lucide-react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
 
 type Person = {
@@ -16,6 +17,7 @@ type Person = {
 type Community = {
   id: string;
   name: string;
+  slug: string;
 };
 
 type Activity = {
@@ -35,7 +37,7 @@ type NotificationRecord = {
   title: string;
   body: string | null;
   read: boolean;
-  created_at: Date;
+  created_at: string | Date;
   users_notifications_actor_idTousers: {
     id: string;
     username: string;
@@ -44,14 +46,20 @@ type NotificationRecord = {
       avatar_url: string | null;
     } | null;
   } | null;
-  communities: {
+  users_notifications_related_user_idTousers: {
     id: string;
-    name: string;
+    username: string;
+    profiles: {
+      full_name: string;
+      avatar_url: string | null;
+    } | null;
   } | null;
-  activities: {
+  posts: {
     id: string;
-    title: string;
+    title: string | null;
   } | null;
+  communities: Community | null;
+  activities: Activity | null;
 };
 
 type Props = {
@@ -70,7 +78,7 @@ type Props = {
 
 type ActivityItem = {
   id: string;
-  kind: "follow" | "like" | "comment" | "invite" | "community";
+  kind: "follow" | "like" | "comment" | "invite" | "community" | "update" | "report";
   unread: boolean;
   createdAt: Date;
   actor: {
@@ -80,6 +88,7 @@ type ActivityItem = {
   };
   message: string;
   meta: string;
+  href: string;
 };
 
 const kindStyles = {
@@ -108,10 +117,50 @@ const kindStyles = {
     badge: "Community",
     accent: "border-amber-300/18 bg-amber-400/10 text-amber-100",
   },
+  update: {
+    icon: CheckCircle2,
+    badge: "Update",
+    accent: "border-slate-300/18 bg-slate-400/10 text-slate-100",
+  },
+  report: {
+    icon: Sparkles,
+    badge: "Report",
+    accent: "border-indigo-300/18 bg-indigo-400/10 text-indigo-100",
+  },
 } as const;
 
 function getName(person: Person | Props["currentUser"]) {
   return person.profile?.full_name ?? person.username;
+}
+
+function getCreatedAtValue(createdAt: string | Date) {
+  return typeof createdAt === "string" ? new Date(createdAt) : createdAt;
+}
+
+function resolveNotificationHref(record: NotificationRecord) {
+  if (record.type === "FOLLOWED") {
+    return record.users_notifications_actor_idTousers
+      ? `/profile/${record.users_notifications_actor_idTousers.username}`
+      : "/profile";
+  }
+
+  if (record.type === "POST_LIKED") {
+    return record.posts ? `/posts/${record.posts.id}` : "/home";
+  }
+
+  if (record.type === "ACTIVITY_JOINED") {
+    return record.activities ? `/activity/${record.activities.id}` : "/activity";
+  }
+
+  if (record.type === "COMMUNITY_JOINED") {
+    return record.communities ? `/communities/${record.communities.slug}` : "/communities";
+  }
+
+  if (record.type === "VERIFICATION_UPDATED" || record.type === "REPORT_UPDATED") {
+    return "/profile";
+  }
+
+  return "/activity";
 }
 
 function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
@@ -119,23 +168,34 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
     const actorName =
       record.users_notifications_actor_idTousers?.profiles?.full_name ??
       record.users_notifications_actor_idTousers?.username ??
+      record.users_notifications_related_user_idTousers?.profiles?.full_name ??
+      record.users_notifications_related_user_idTousers?.username ??
       "SyncUp";
-    const actorUsername = record.users_notifications_actor_idTousers?.username ?? "syncup";
-    const avatarUrl = record.users_notifications_actor_idTousers?.profiles?.avatar_url ?? null;
+    const actorUsername =
+      record.users_notifications_actor_idTousers?.username ??
+      record.users_notifications_related_user_idTousers?.username ??
+      "syncup";
+    const avatarUrl =
+      record.users_notifications_actor_idTousers?.profiles?.avatar_url ??
+      record.users_notifications_related_user_idTousers?.profiles?.avatar_url ??
+      null;
+    const createdAt = getCreatedAtValue(record.created_at);
+    const href = resolveNotificationHref(record);
 
     if (record.type === "FOLLOWED") {
       return {
         id: record.id,
         kind: "follow",
         unread: !record.read,
-        createdAt: record.created_at,
+        createdAt,
         actor: {
           name: actorName,
           username: actorUsername,
           avatarUrl,
         },
         message: "started following you",
-        meta: "New connection",
+        meta: "Open profile",
+        href,
       };
     }
 
@@ -144,14 +204,15 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
         id: record.id,
         kind: "like",
         unread: !record.read,
-        createdAt: record.created_at,
+        createdAt,
         actor: {
           name: actorName,
           username: actorUsername,
           avatarUrl,
         },
         message: "liked your post",
-        meta: record.body ?? record.title,
+        meta: record.posts?.title ?? record.title,
+        href,
       };
     }
 
@@ -160,7 +221,7 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
         id: record.id,
         kind: "invite",
         unread: !record.read,
-        createdAt: record.created_at,
+        createdAt,
         actor: {
           name: actorName,
           username: actorUsername,
@@ -168,6 +229,7 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
         },
         message: "joined your activity",
         meta: record.activities?.title ?? record.title,
+        href,
       };
     }
 
@@ -176,22 +238,40 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
         id: record.id,
         kind: "community",
         unread: !record.read,
-        createdAt: record.created_at,
+        createdAt,
         actor: {
           name: actorName,
           username: actorUsername,
           avatarUrl,
         },
-        message: "interacted with your community",
+        message: "joined your community",
         meta: record.communities?.name ?? record.title,
+        href,
+      };
+    }
+
+    if (record.type === "VERIFICATION_UPDATED") {
+      return {
+        id: record.id,
+        kind: "update",
+        unread: !record.read,
+        createdAt,
+        actor: {
+          name: actorName,
+          username: actorUsername,
+          avatarUrl,
+        },
+        message: record.title,
+        meta: record.body ?? "Profile update",
+        href,
       };
     }
 
     return {
       id: record.id,
-      kind: "community",
+      kind: "report",
       unread: !record.read,
-      createdAt: record.created_at,
+      createdAt,
       actor: {
         name: actorName,
         username: actorUsername,
@@ -199,96 +279,9 @@ function normalizeNotifications(records: NotificationRecord[]): ActivityItem[] {
       },
       message: record.title,
       meta: record.body ?? "SyncUp update",
+      href,
     };
   });
-}
-
-function buildSeedItems(
-  currentUser: Props["currentUser"],
-  people: Person[],
-  communities: Community[],
-  activities: Activity[],
-): ActivityItem[] {
-  const now = Date.now();
-  const fallbackPeople = people.slice(0, 5);
-
-  return [
-    fallbackPeople[0]
-      ? {
-          id: `seed-follow-${fallbackPeople[0].id}`,
-          kind: "follow",
-          unread: true,
-          createdAt: new Date(now - 1000 * 60 * 42),
-          actor: {
-            name: getName(fallbackPeople[0]),
-            username: fallbackPeople[0].username,
-            avatarUrl: fallbackPeople[0].profile?.avatar_url ?? null,
-          },
-          message: "started following you",
-          meta: "New connection",
-        }
-      : null,
-    fallbackPeople[1]
-      ? {
-          id: `seed-comment-${fallbackPeople[1].id}`,
-          kind: "comment",
-          unread: true,
-          createdAt: new Date(now - 1000 * 60 * 60 * 5),
-          actor: {
-            name: getName(fallbackPeople[1]),
-            username: fallbackPeople[1].username,
-            avatarUrl: fallbackPeople[1].profile?.avatar_url ?? null,
-          },
-          message: "commented on your post",
-          meta: "This plan actually sounds fun. I'm in if there's room.",
-        }
-      : null,
-    fallbackPeople[2] && activities[0]
-      ? {
-          id: `seed-invite-${fallbackPeople[2].id}`,
-          kind: "invite",
-          unread: false,
-          createdAt: new Date(now - 1000 * 60 * 60 * 26),
-          actor: {
-            name: getName(fallbackPeople[2]),
-            username: fallbackPeople[2].username,
-            avatarUrl: fallbackPeople[2].profile?.avatar_url ?? null,
-          },
-          message: "joined your invite",
-          meta: activities[0].title,
-        }
-      : null,
-    fallbackPeople[3] && activities[1]
-      ? {
-          id: `seed-invite-declined-${fallbackPeople[3].id}`,
-          kind: "invite",
-          unread: false,
-          createdAt: new Date(now - 1000 * 60 * 60 * 24 * 3),
-          actor: {
-            name: getName(fallbackPeople[3]),
-            username: fallbackPeople[3].username,
-            avatarUrl: fallbackPeople[3].profile?.avatar_url ?? null,
-          },
-          message: "declined your invite",
-          meta: activities[1].title,
-        }
-      : null,
-    fallbackPeople[4] && communities[0]
-      ? {
-          id: `seed-community-${fallbackPeople[4].id}`,
-          kind: "community",
-          unread: false,
-          createdAt: new Date(now - 1000 * 60 * 60 * 24 * 9),
-          actor: {
-            name: getName(fallbackPeople[4]),
-            username: fallbackPeople[4].username,
-            avatarUrl: fallbackPeople[4].profile?.avatar_url ?? null,
-          },
-          message: "reacted in your community",
-          meta: communities[0].name,
-        }
-      : null,
-  ].filter((item): item is ActivityItem => item !== null);
 }
 
 function groupItems(items: ActivityItem[]) {
@@ -302,6 +295,23 @@ function groupItems(items: ActivityItem[]) {
     }),
     older: items.filter((item) => now - item.createdAt.getTime() >= 1000 * 60 * 60 * 24 * 7),
   };
+}
+
+async function sendNotificationRequest(action: string, notificationId?: string) {
+  const response = await fetch("/api/notifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, notificationId }),
+    keepalive: true,
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to update notifications.");
+  }
+
+  return response.json();
 }
 
 function Section({
@@ -424,4 +434,73 @@ export function ActivityFeed({ currentUser, notifications, people, communities, 
       )}
     </div>
   );
+}
+
+function buildSeedItems(
+  currentUser: Props["currentUser"],
+  people: Person[],
+  communities: Community[],
+  activities: Activity[],
+): ActivityItem[] {
+  const seededItems: ActivityItem[] = [];
+  const now = new Date();
+
+  // Seed follow suggestions
+  if (people.length > 0) {
+    const followPerson = people[Math.floor(Math.random() * people.length)];
+    seededItems.push({
+      id: `seed-follow-${followPerson.id}`,
+      kind: "follow",
+      unread: false,
+      createdAt: new Date(now.getTime() - Math.random() * 7 * 24 * 60 * 60 * 1000), // Random within last week
+      actor: {
+        name: getName(followPerson),
+        username: followPerson.username,
+        avatarUrl: followPerson.profile?.avatar_url ?? null,
+      },
+      message: "is active in your network",
+      meta: "Suggested follow",
+      href: `/profile/${followPerson.username}`,
+    });
+  }
+
+  // Seed community suggestions
+  if (communities.length > 0) {
+    const community = communities[Math.floor(Math.random() * communities.length)];
+    seededItems.push({
+      id: `seed-community-${community.id}`,
+      kind: "community",
+      unread: false,
+      createdAt: new Date(now.getTime() - Math.random() * 3 * 24 * 60 * 60 * 1000), // Random within last 3 days
+      actor: {
+        name: community.name,
+        username: "syncup",
+        avatarUrl: null,
+      },
+      message: "Community you might like",
+      meta: community.name,
+      href: `/communities/${community.slug}`,
+    });
+  }
+
+  // Seed activity suggestions
+  if (activities.length > 0) {
+    const activity = activities[Math.floor(Math.random() * activities.length)];
+    seededItems.push({
+      id: `seed-activity-${activity.id}`,
+      kind: "invite",
+      unread: false,
+      createdAt: new Date(now.getTime() - Math.random() * 5 * 24 * 60 * 60 * 1000), // Random within last 5 days
+      actor: {
+        name: currentUser.profile?.full_name ?? currentUser.username,
+        username: currentUser.username,
+        avatarUrl: currentUser.profile?.avatar_url ?? null,
+      },
+      message: "has upcoming plans",
+      meta: activity.title,
+      href: `/activity/${activity.id}`,
+    });
+  }
+
+  return seededItems;
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CalendarDays } from "lucide-react";
 import { formatDistanceToNow } from "@/lib/utils";
 
@@ -29,9 +30,10 @@ export function SuggestedActivityCard({ activities }: { activities: Activity[] }
       <div className="relative mt-4 space-y-4">
         {activities.length > 0 ? (
           activities.map((activity) => (
-            <article
-              className="rounded-3xl border border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.2)]"
+            <Link
+              href={`/activity/${activity.id}`}
               key={activity.id}
+              className="block rounded-3xl border border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-white/10"
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-slate-50">{activity.title}</p>
@@ -45,7 +47,7 @@ export function SuggestedActivityCard({ activities }: { activities: Activity[] }
                   [activity.city, activity.country].filter(Boolean).join(", ") ||
                   "Location to be announced"}
               </p>
-            </article>
+            </Link>
           ))
         ) : (
           <div className="rounded-2xl border border-dashed border-sky-300/14 bg-[linear-gradient(180deg,rgba(56,189,248,0.08),rgba(255,255,255,0.02))] p-4">

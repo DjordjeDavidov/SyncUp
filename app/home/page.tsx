@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { CalendarClock, Compass, ImageIcon, Sparkles, Users, Vote, Waves } from "lucide-react";
+import { CalendarClock, ImageIcon, Sparkles, Users, Vote } from "lucide-react";
 import {
   cancelActivityPostAction,
   createCommentAction,
@@ -13,12 +13,10 @@ import {
   voteOnPollAction,
 } from "@/actions/feed";
 import { CreatePostCard } from "@/components/create-post-card";
+import { ExploreSidebar } from "@/components/explore-sidebar";
 import { MobileNav } from "@/components/mobile-nav";
 import { Navbar } from "@/components/navbar";
 import { PostCard } from "@/components/post-card";
-import { SuggestedActivityCard } from "@/components/suggested-activity-card";
-import { SuggestedCommunityCard } from "@/components/suggested-community-card";
-import { SuggestedPeopleCard } from "@/components/suggested-people-card";
 import { mapPostRecordToPost } from "@/lib/post-mappers";
 import { getCurrentUserOrRedirect } from "@/server/auth";
 import { getHomeFeedData } from "@/server/queries";
@@ -32,29 +30,6 @@ export default async function HomePage() {
 
   const data = await getHomeFeedData(currentUser.id);
   const feedPosts = data.posts.map((post) => mapPostRecordToPost(post, currentUser.id));
-  const exploreItems = [
-    {
-      href: "#people-discover",
-      title: "People",
-      description: "Meet people who share your vibe and interests.",
-      icon: Users,
-      active: true,
-    },
-    {
-      href: "#community-discover",
-      title: "Communities",
-      description: "Jump into active groups around hobbies and local scenes.",
-      icon: Sparkles,
-      active: false,
-    },
-    {
-      href: "#activity-discover",
-      title: "Activities",
-      description: "See what is happening soon and who is joining.",
-      icon: Waves,
-      active: false,
-    },
-  ] as const;
   const previewCards = [
     {
       type: "post",
@@ -98,60 +73,25 @@ export default async function HomePage() {
     <div className="app-shell">
       <div className="mx-auto min-h-screen w-full max-w-7xl px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-12">
         <Navbar user={currentUser} logoutAction={logoutAction} />
-        <div className="grid gap-6 py-8 lg:grid-cols-[240px_minmax(0,1.12fr)_300px]">
-          <aside className="space-y-4 lg:sticky lg:top-6 lg:h-fit">
-            <nav aria-label="Explore sections" className="surface-card rounded-2xl p-6">
-              <div className="flex items-center gap-2 text-indigo-200">
-                <Compass className="h-4 w-4" />
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-indigo-300">
-                  Explore
-                </p>
-              </div>
-              <div className="mt-6 space-y-4">
-                {exploreItems.map((item) => {
-                  const Icon = item.icon;
+        <div className="grid gap-8 py-8 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <ExploreSidebar
+            people={data.people}
+            communities={data.communities}
+            activities={data.activities}
+          />
+          <main className="space-y-6">
+            <section className="surface-card rounded-3xl border border-white/10 p-6 sm:p-8 shadow-[0_20px_60px_rgba(2,6,23,0.3)]">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-indigo-300">Discover</p>
+                  <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Your personalized feed</h1>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                    Connect with people who share your interests and join communities that match your vibe.
+                  </p>
+                </div>
+                  </div>
+            </section>
 
-                  return (
-                    <a
-                      aria-current={item.active ? "page" : undefined}
-                      className={`group block rounded-2xl border px-4 py-4 transition-all duration-200 ${
-                        item.active
-                          ? "border-indigo-300/20 bg-[linear-gradient(180deg,rgba(99,102,241,0.16),rgba(59,130,246,0.08))] shadow-[0_12px_28px_rgba(30,41,59,0.24),0_0_22px_rgba(99,102,241,0.08)]"
-                          : "border-white/6 bg-white/[0.03] hover:-translate-y-0.5 hover:border-white/10 hover:bg-white/[0.06]"
-                      }`}
-                      href={item.href}
-                      key={item.title}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition-all duration-200 ${
-                            item.active
-                              ? "border-indigo-300/20 bg-indigo-400/14 text-indigo-100"
-                              : "border-white/6 bg-white/[0.04] text-slate-300 group-hover:border-indigo-300/15 group-hover:bg-indigo-400/10 group-hover:text-indigo-100"
-                          }`}
-                        >
-                          <Icon className="h-4.5 w-4.5" />
-                        </div>
-                        <div className="min-w-0">
-                          <p
-                            className={`text-base font-semibold tracking-tight transition duration-200 ${
-                              item.active ? "text-white" : "text-slate-100"
-                            }`}
-                          >
-                            {item.title}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {item.description}
-                          </p>
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </nav>
-          </aside>
-          <main className="space-y-8">
             <div className="animate-feed-in">
               <CreatePostCard action={createPostAction} currentUser={currentUser} />
             </div>
@@ -178,12 +118,38 @@ export default async function HomePage() {
                 ))}
               </div>
             ) : (
-              <div className="space-y-5">
-                <div className="surface-card animate-feed-in rounded-2xl p-6">
-                  <p className="text-sm font-semibold text-slate-100">Your feed is warming up.</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    SyncUp supports casual posts, invites, polls, and visual updates, so here is a live preview of the kinds of moments that will show up once your network starts sharing.
-                  </p>
+              <div className="space-y-6">
+                <div className="surface-card animate-feed-in rounded-3xl border border-white/10 p-6 sm:p-8">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-indigo-300/20 bg-indigo-400/10 text-indigo-200">
+                      <Sparkles className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-white">Your feed is getting started</p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        Follow people and join communities to see posts, invites, and activities from your network.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <a
+                      href="#people-discover"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#6366f1,#8b5cf6)] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(99,102,241,0.28)] transition-all duration-200 hover:-translate-y-0.5"
+                    >
+                      <Users className="h-4 w-4" />
+                      Find people to follow
+                    </a>
+                    <a
+                      href="#community-discover"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:border-white/20 hover:bg-white/[0.08]"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Browse communities
+                    </a>
+                  </div>
+                </div>
+                <div className="animate-feed-in">
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-indigo-300 mb-4">Preview of what you'll see</p>
                 </div>
                 {previewCards.map((card, index) => {
                   const Icon = card.icon;
@@ -248,11 +214,6 @@ export default async function HomePage() {
               </div>
             )}
           </main>
-          <aside className="space-y-6">
-            <SuggestedPeopleCard people={data.people} />
-            <SuggestedCommunityCard communities={data.communities} />
-            <SuggestedActivityCard activities={data.activities} />
-          </aside>
         </div>
         <MobileNav />
       </div>

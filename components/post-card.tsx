@@ -1,3 +1,5 @@
+"use client";
+
 import { LikeButton } from "@/components/post-like-button";
 import { PostCommentsModal } from "@/components/post-comments-modal";
 import { PostActionForm } from "@/components/post-action-form";
@@ -13,6 +15,7 @@ import {
   Share,
   Users,
 } from "lucide-react";
+import { useCallback, useState } from "react";
 
 type Props = {
   post: SyncUpPost;
@@ -312,6 +315,24 @@ export function PostCard({
   deleteAction,
   updateAction,
 }: Props) {
+  const [likesCount, setLikesCount] = useState(post.likesCount);
+  const [liked, setLiked] = useState(post.likedByCurrentUser);
+
+  const handleLike = useCallback(async () => {
+    const newLiked = !liked;
+    setLiked(newLiked);
+    setLikesCount(prev => newLiked ? prev + 1 : prev - 1);
+
+    try {
+      const formData = new FormData();
+      formData.append('postId', post.id);
+      await action(formData);
+    } catch (error) {
+      // Revert on error
+      setLiked(!newLiked);
+      setLikesCount(prev => newLiked ? prev - 1 : prev + 1);
+    }
+  }, [liked, action, post.id]);
   return (
     <article className="group relative overflow-hidden rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(24,32,52,0.94),rgba(11,16,28,0.96))] p-4 shadow-[0_18px_48px_rgba(2,6,23,0.34),0_0_0_1px_rgba(255,255,255,0.02),0_0_28px_rgba(99,102,241,0.06)] transition-all duration-200 hover:scale-[1.01] hover:border-indigo-300/20 hover:shadow-[0_24px_56px_rgba(2,6,23,0.42),0_0_0_1px_rgba(129,140,248,0.08),0_0_36px_rgba(99,102,241,0.1)] sm:p-6">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(129,140,248,0.12),transparent_32%),radial-gradient(circle_at_bottom_left,rgba(56,189,248,0.07),transparent_28%)] opacity-80" />
@@ -390,14 +411,14 @@ export function PostCard({
 
       <div className="relative mt-5 flex items-center justify-between px-1 text-sm">
         <p className="font-medium text-muted-foreground">
-          {post.likesCount} likes
+          {likesCount} likes
           <span className="mx-2 text-slate-600">&bull;</span>
           {post.commentsCount} comments
         </p>
       </div>
 
       <div className="relative mt-3 grid grid-cols-4 gap-2 border-t border-white/6 pt-4">
-        <LikeButton action={action} liked={post.likedByCurrentUser} postId={post.id} />
+        <LikeButton onLike={handleLike} liked={liked} />
         <PostCommentsModal
           action={commentAction}
           comments={post.comments}

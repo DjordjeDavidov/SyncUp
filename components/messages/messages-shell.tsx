@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { MessageCircleMore, Search, SendHorizonal, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn, formatDistanceToNow, getInitials } from "@/lib/utils";
@@ -23,8 +24,17 @@ type MessageUser = {
   } | null;
 };
 
+type CommunityChat = {
+  id: string;
+  slug: string;
+  name: string;
+  coverUrl: string | null;
+  memberCount: number;
+};
+
 type Props = {
   contacts: MessageContact[];
+  communityChats: CommunityChat[];
   currentUser: MessageUser;
 };
 
@@ -94,7 +104,7 @@ function buildInitialConversations(currentUser: MessageUser, contacts: MessageCo
   });
 }
 
-export function MessagesShell({ contacts, currentUser }: Props) {
+export function MessagesShell({ contacts, communityChats, currentUser }: Props) {
   const [conversations, setConversations] = useState(() => buildInitialConversations(currentUser, contacts));
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     contacts[0] ? `conversation-${contacts[0].id}` : null,
@@ -175,6 +185,45 @@ export function MessagesShell({ contacts, currentUser }: Props) {
               value={searchValue}
             />
           </label>
+          <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Community chats</p>
+                <p className="text-sm text-slate-400">Group chats for your joined communities.</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {communityChats.length > 0 ? (
+                communityChats.map((community) => (
+                  <Link
+                    key={community.id}
+                    href={`/communities/${community.slug}/chat`}
+                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left transition-all duration-200 hover:border-white/20 hover:bg-white/[0.05]"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900 text-sm font-semibold text-white">
+                      {community.coverUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img alt={community.name} className="h-full w-full object-cover" src={community.coverUrl} />
+                      ) : (
+                        community.name
+                          .split(" ")
+                          .map((part) => part[0])
+                          .join("")
+                          .slice(0, 2)
+                          .toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-white">{community.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{community.memberCount} members</p>
+                    </div>
+                  </Link>
+                ))
+              ) : (
+                <p className="text-sm text-slate-400">No community chats yet. Join a community to start group conversations.</p>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="max-h-[calc(100vh-18rem)] space-y-2 overflow-y-auto p-3">

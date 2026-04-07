@@ -14,7 +14,7 @@ export default async function MessagesPage() {
       <div className="mx-auto min-h-screen w-full max-w-7xl px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-12">
         <Navbar user={currentUser} logoutAction={logoutAction} />
         <div className="py-8">
-          <MessagesShell contacts={data.contacts} currentUser={currentUser} />
+          <MessagesShell contacts={data.contacts} communityChats={data.communityChats} currentUser={currentUser} />
         </div>
         <MobileNav />
       </div>

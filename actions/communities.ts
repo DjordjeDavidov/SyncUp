@@ -160,3 +160,96 @@ export async function createCommunityAction(_: FormState, formData: FormData): P
     success: true,
   };
 }
+
+export async function joinCommunityAction(communityId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const currentUser = await getCurrentUserOrRedirect();
+
+    const community = await prisma.communities.findUnique({
+      where: { id: communityId },
+      select: { id: true, visibility: true },
+    });
+
+    if (!community) {
+      return { success: false, message: "Community not found." };
+    }
+
+    const existingMembership = await prisma.community_members.findUnique({
+      where: {
+        community_id_user_id: {
+          community_id: communityId,
+          user_id: currentUser.id,
+        },
+      },
+      select: { user_id: true },
+    });
+
+    if (existingMembership) {
+      return { success: false, message: "You are already a member of this community." };
+    }
+
+    await prisma.community_members.create({
+      data: {
+        community_id: communityId,
+        user_id: currentUser.id,
+        role: "MEMBER",
+      },
+    });
+
+    revalidatePath("/communities");
+    revalidatePath("/home");
+
+    return { success: true, message: "Successfully joined the community!" };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Could not join the community right now.",
+    };
+  }
+}
+
+export async function leaveCommunityAction(communityId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const currentUser = await getCurrentUserOrRedirect();
+
+    const membership = await prisma.community_members.findUnique({
+      where: {
+        community_id_user_id: {
+          community_id: communityId,
+          user_id: currentUser.id,
+        },
+      },
+      select: { role: true },
+    });
+
+    if (!membership) {
+      return { success: false, message: "You are not a member of this community." };
+    }
+
+    if (membership.role === "OWNER") {
+      return {
+        success: false,
+        message: "Community owners cannot leave. Transfer ownership or delete the community first.",
+      };
+    }
+
+    await prisma.community_members.delete({
+      where: {
+        community_id_user_id: {
+          community_id: communityId,
+          user_id: currentUser.id,
+        },
+      },
+    });
+
+    revalidatePath("/communities");
+    revalidatePath("/home");
+
+    return { success: true, message: "Successfully left the community." };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Could not leave the community right now.",
+    };
+  }
+}

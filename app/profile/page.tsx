@@ -63,14 +63,14 @@ export default async function ProfilePage() {
               voteAction={voteOnPollAction}
             />
           </main>
-          <div className="hidden lg:block">
+          <aside>
             <ProfileSidebar
               activities={data.activities}
               communities={data.communities}
               posts={data.posts}
               user={data.user}
             />
-          </div>
+          </aside>
         </div>
         <MobileNav />
       </div>

@@ -41,7 +41,7 @@ export function SuggestedCommunityCard({ communities }: { communities: Community
             return (
               <Link
               className="block overflow-hidden rounded-3xl border border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] shadow-[0_8px_24px_rgba(15,23,42,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-white/10"
-              href="/communities"
+              href={`/communities/${community.slug}`}
               key={community.id}
             >
               <div className="relative h-28 overflow-hidden border-b border-white/6">
