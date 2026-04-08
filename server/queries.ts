@@ -1518,3 +1518,321 @@ function createFallbackExploreImage(seed: string, kind: "photo" | "community" | 
 
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
+
+/* ========================
+   UNIFIED CHAT QUERIES
+   ======================== */
+
+export async function getUnifiedChatsData(userId: string) {
+  const [threads, communityChats] = await Promise.all([
+    prisma.direct_message_threads.findMany({
+      where: {
+        participants: {
+          some: {
+            user_id: userId,
+          },
+        },
+      },
+      include: {
+        participants: {
+          include: {
+            users: {
+              include: {
+                profiles: true,
+              },
+            },
+          },
+        },
+        messages: {
+          orderBy: {
+            created_at: "asc",
+          },
+          include: {
+            users: {
+              include: {
+                profiles: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        updated_at: "desc",
+      },
+      take: 50,
+    }),
+    prisma.communities.findMany({
+      where: {
+        community_members: {
+          some: {
+            user_id: userId,
+          },
+        },
+      },
+      include: {
+        community_chat: {
+          include: {
+            messages: {
+              orderBy: { created_at: "asc" },
+              include: {
+                users: {
+                  include: {
+                    profiles: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        users: {
+          include: {
+            profiles: true,
+          },
+        },
+        _count: {
+          select: {
+            community_members: true,
+          },
+        },
+      },
+      orderBy: { updated_at: "desc" },
+      take: 50,
+    }),
+  ]);
+
+  const chats = [
+    // Direct Messages
+    ...threads
+      .map((thread) => {
+        const participant = thread.participants.find((item) => item.user_id !== userId)?.users;
+        const lastMessage = thread.messages.at(-1);
+
+        if (!participant) {
+          return null;
+        }
+
+        return {
+          id: thread.id,
+          type: "dm" as const,
+          title: participant.profiles?.full_name ?? participant.username,
+          avatar: participant.profiles?.avatar_url ?? null,
+          lastMessage: lastMessage?.message ?? null,
+          lastMessageAt: lastMessage?.created_at ?? null,
+          metadata: {
+            username: participant.username,
+          },
+        };
+      })
+      .filter(Boolean),
+
+    // Community Chats
+    ...communityChats.map((community) => {
+      const lastMessage = community.community_chat?.messages.at(-1);
+
+      return {
+        id: community.id,
+        type: "community" as const,
+        title: community.name,
+        avatar: community.cover_url ?? null,
+        lastMessage: lastMessage?.message ?? null,
+        lastMessageAt: lastMessage?.created_at ?? null,
+        metadata: {
+          slug: community.slug,
+          memberCount: community._count.community_members,
+          description: community.description,
+          creator: community.users.profiles?.full_name ?? community.users.username,
+          creatorId: community.users.id,
+        },
+      };
+    }),
+  ];
+
+  return chats;
+}
+
+export async function getUnifiedChatDetails(userId: string, chatId: string) {
+  // Try to find as a DM thread first
+  const dmThread = await prisma.direct_message_threads.findUnique({
+    where: { id: chatId },
+    include: {
+      participants: {
+        include: {
+          users: {
+            include: {
+              profiles: true,
+            },
+          },
+        },
+      },
+      messages: {
+        orderBy: { created_at: "asc" },
+        include: {
+          users: {
+            include: {
+              profiles: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (dmThread) {
+    const participant = dmThread.participants.find((item) => item.user_id !== userId)?.users;
+    const isMember = dmThread.participants.some((item) => item.user_id === userId);
+
+    if (!participant || !isMember) {
+      return null;
+    }
+
+    // Extract shared media from messages (placeholder - messages with image URLs)
+    const sharedMedia = dmThread.messages
+      .filter((message) => message.message.includes("http") && /\.(jpg|jpeg|png|gif|webp)/i.test(message.message))
+      .slice(-9) // Get last 9 media items
+      .map((message) => {
+        const urlMatch = message.message.match(/(https?:\/\/[^\s]+)/);
+        return {
+          id: message.id,
+          type: "image" as const,
+          url: urlMatch ? urlMatch[1] : "",
+          createdAt: message.created_at,
+        };
+      });
+
+    return {
+      type: "dm" as const,
+      id: dmThread.id,
+      title: participant.profiles?.full_name ?? participant.username,
+      description: undefined,
+      avatar: participant.profiles?.avatar_url ?? null,
+      messages: dmThread.messages.map((message) => ({
+        id: message.id,
+        senderId: message.sender_id,
+        senderName: message.users.profiles?.full_name ?? message.users.username,
+        senderAvatar: message.users.profiles?.avatar_url ?? null,
+        text: message.message,
+        createdAt: message.created_at,
+      })),
+      canChat: true,
+      details: {
+        type: "dm" as const,
+        title: participant.profiles?.full_name ?? participant.username,
+        avatar: participant.profiles?.avatar_url ?? null,
+        sharedMedia,
+      },
+    };
+  }
+
+  // Try to find as a community chat
+  const community = await prisma.communities.findUnique({
+    where: { id: chatId },
+    include: {
+      community_chat: {
+        include: {
+          messages: {
+            orderBy: { created_at: "asc" },
+            include: {
+              users: {
+                include: {
+                  profiles: true,
+                },
+              },
+            },
+          },
+        },
+      },
+      users: {
+        include: {
+          profiles: true,
+        },
+      },
+      community_members: {
+        where: { user_id: userId },
+        include: {
+          users: {
+            include: {
+              profiles: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          community_members: true,
+        },
+      },
+    },
+  });
+
+  if (!community) {
+    return null;
+  }
+
+  const isMember = community.community_members.length > 0;
+  const canChat = isMember;
+  const userRole = community.community_members[0]?.role;
+
+  // Extract shared media from messages (placeholder - messages with image URLs)
+  const sharedMedia = community.community_chat?.messages
+    .filter((message) => message.message.includes("http") && /\.(jpg|jpeg|png|gif|webp)/i.test(message.message))
+    .slice(-9) // Get last 9 media items
+    .map((message) => {
+      const urlMatch = message.message.match(/(https?:\/\/[^\s]+)/);
+      return {
+        id: message.id,
+        type: "image" as const,
+        url: urlMatch ? urlMatch[1] : "",
+        createdAt: message.created_at,
+      };
+    }) ?? [];
+
+  // Get all members
+  const allMembers = await prisma.community_members.findMany({
+    where: { community_id: chatId },
+    include: {
+      users: {
+        include: {
+          profiles: true,
+        },
+      },
+    },
+    orderBy: { joined_at: "asc" },
+  });
+
+  const members = allMembers.map((member) => ({
+    id: member.users.id,
+    name: member.users.profiles?.full_name ?? member.users.username,
+    avatar: member.users.profiles?.avatar_url ?? null,
+    role: member.role,
+  }));
+
+  return {
+    type: "community" as const,
+    id: community.id,
+    title: community.name,
+    description: community.description,
+    avatar: community.cover_url ?? null,
+    messages:
+      community.community_chat?.messages.map((message) => ({
+        id: message.id,
+        senderId: message.users.id,
+        senderName: message.users.profiles?.full_name ?? message.users.username,
+        senderAvatar: message.users.profiles?.avatar_url ?? null,
+        text: message.message,
+        createdAt: message.created_at,
+      })) ?? [],
+    canChat,
+    details: {
+      type: "community" as const,
+      title: community.name,
+      description: community.description,
+      memberCount: community._count.community_members,
+      creator: community.users.profiles?.full_name ?? community.users.username,
+      createdAt: community.created_at,
+      members,
+      sharedMedia,
+      canAddMembers: userRole === "OWNER" || userRole === "MODERATOR",
+      canLeave: userRole !== "OWNER",
+    },
+  };
+}

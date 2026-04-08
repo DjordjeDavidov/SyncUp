@@ -116,7 +116,7 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
 
   return (
     <header
-      className={`sticky top-4 z-30 mb-2 flex items-center justify-between rounded-[28px] border border-white/10 bg-[rgba(10,14,28,0.72)] px-4 py-3 shadow-[0_18px_50px_rgba(2,6,23,0.34)] backdrop-blur-xl transition-transform duration-300 sm:px-5 ${
+      className={`z-30 flex items-center justify-between rounded-[28px] border border-white/10 bg-[rgba(10,14,28,0.72)] px-4 py-3 shadow-[0_18px_50px_rgba(2,6,23,0.34)] backdrop-blur-xl transition-transform duration-300 sm:px-5 ${
         isVisible ? "translate-y-0 opacity-100" : "-translate-y-[140%] opacity-0"
       }`}
     >
@@ -184,11 +184,11 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
           <Link
             aria-label="Messages"
             className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border text-slate-300 transition-all duration-200 ${
-              pathname === "/messages"
+              pathname === "/chats" || pathname.startsWith("/chats/")
                 ? "border-sky-300/20 bg-sky-400/10 text-sky-100 shadow-[0_10px_24px_rgba(56,189,248,0.12)]"
                 : "border-white/8 bg-white/[0.04] hover:border-sky-300/20 hover:bg-sky-400/10 hover:text-sky-100 active:scale-[0.99]"
             }`}
-            href="/messages"
+            href="/chats"
           >
             <MessageCircleMore className="h-4.5 w-4.5" />
           </Link>
