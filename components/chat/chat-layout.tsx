@@ -15,9 +15,22 @@ export type ChatLayoutProps = {
   currentUserId: string;
   currentChatHeader?: ChatHeaderData;
   messages: Message[];
-  onSendMessage: (message: string) => void;
+  initialScrollTargetMessageId?: string | null;
+  seenMessageId?: string | null;
+  onSendMessage: (payload: FormData) => Promise<void>;
+  onToggleMessageLike?: (messageId: string) => Promise<void>;
+  onReplyToMessage?: (message: Message) => void;
+  onDeleteMessage?: (messageId: string) => Promise<void>;
   canChat?: boolean;
+  composerDisabled?: boolean;
+  composerPlaceholder?: string;
+  allowAttachments?: boolean;
+  replyTarget?: Message | null;
+  onCancelReply?: () => void;
   chatDetailsData?: ChatDetailsData;
+  onBlockChat?: () => void;
+  onDeleteChat?: () => void;
+  detailsActionPending?: boolean;
 };
 
 export function ChatLayout({
@@ -27,9 +40,22 @@ export function ChatLayout({
   currentUserId,
   currentChatHeader,
   messages,
+  initialScrollTargetMessageId,
+  seenMessageId,
   onSendMessage,
+  onToggleMessageLike,
+  onReplyToMessage,
+  onDeleteMessage,
   canChat = true,
+  composerDisabled = false,
+  composerPlaceholder,
+  allowAttachments = false,
+  replyTarget,
+  onCancelReply,
   chatDetailsData,
+  onBlockChat,
+  onDeleteChat,
+  detailsActionPending = false,
 }: ChatLayoutProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -116,20 +142,35 @@ export function ChatLayout({
             </div>
 
             {/* Messages */}
-            <div className="flex-1 min-h-0 overflow-y-auto bg-gradient-to-b from-slate-950 to-slate-950/80">
-              <MessageList messages={messages} currentUserId={currentUserId} />
+            <div className="flex-1 min-h-0 overflow-hidden bg-gradient-to-b from-slate-950 to-slate-950/80">
+              <MessageList
+                currentUserId={currentUserId}
+                initialScrollTargetMessageId={initialScrollTargetMessageId}
+                messages={messages}
+                onDeleteMessage={onDeleteMessage}
+                onReplyToMessage={onReplyToMessage}
+                onToggleMessageLike={onToggleMessageLike}
+                seenMessageId={seenMessageId}
+              />
             </div>
 
             {/* Composer */}
             {canChat ? (
               <div className="flex-shrink-0">
-                <MessageComposer onSubmit={onSendMessage} />
+                <MessageComposer
+                  allowAttachments={allowAttachments}
+                  disabled={composerDisabled}
+                  onCancelReply={onCancelReply}
+                  onSubmit={onSendMessage}
+                  placeholder={composerPlaceholder}
+                  replyTarget={replyTarget}
+                />
               </div>
             ) : (
               <div className="flex-shrink-0 border-t border-white/8 px-6 py-6">
                 <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-6 text-center">
                   <p className="text-sm font-semibold text-white">You don't have access to this chat</p>
-                  <p className="text-xs text-slate-500 mt-2">Join the community to send messages</p>
+                  <p className="mt-2 text-xs text-slate-500">{composerPlaceholder ?? "Join the community to send messages"}</p>
                 </div>
               </div>
             )}
@@ -157,7 +198,14 @@ export function ChatLayout({
       {/* Details Panel - Hidden on Mobile */}
       {chatDetailsData && !isSmallScreen && detailsOpen && (
         <div className="flex-shrink-0 w-80 h-full flex flex-col min-h-0 transition-all duration-300 ease-in-out">
-          <ChatDetailsPanel data={chatDetailsData} onClose={() => setDetailsOpen(false)} isOpen={detailsOpen} />
+          <ChatDetailsPanel
+            data={chatDetailsData}
+            detailsActionPending={detailsActionPending}
+            isOpen={detailsOpen}
+            onBlockChat={onBlockChat}
+            onClose={() => setDetailsOpen(false)}
+            onDeleteChat={onDeleteChat}
+          />
         </div>
       )}
 
@@ -168,7 +216,14 @@ export function ChatLayout({
             className="fixed right-0 top-0 bottom-0 w-80 bg-slate-950/95 border-l border-white/8 shadow-xl flex flex-col min-h-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <ChatDetailsPanel data={chatDetailsData} onClose={() => setDetailsOpen(false)} isOpen={detailsOpen} />
+            <ChatDetailsPanel
+              data={chatDetailsData}
+              detailsActionPending={detailsActionPending}
+              isOpen={detailsOpen}
+              onBlockChat={onBlockChat}
+              onClose={() => setDetailsOpen(false)}
+              onDeleteChat={onDeleteChat}
+            />
           </div>
         </div>
       )}

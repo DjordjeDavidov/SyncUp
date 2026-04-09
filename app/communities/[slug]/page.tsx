@@ -125,7 +125,11 @@ export default async function CommunityPage({ params }: PageProps) {
       },
       community_members: {
         take: 10,
-        include: {
+        select: {
+          community_id: true,
+          user_id: true,
+          role: true,
+          joined_at: true,
           users: {
             include: {
               profiles: true,

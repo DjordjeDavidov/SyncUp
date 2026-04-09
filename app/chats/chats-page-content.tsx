@@ -10,6 +10,7 @@ type UnifiedChat = {
   avatar: string | null;
   lastMessage: string | null;
   lastMessageAt: Date | null;
+  unreadCount?: number;
   metadata?: {
     username?: string;
     slug?: string;
@@ -36,6 +37,7 @@ export function ChatsPageContent({ chats, currentUserId }: Props) {
     avatar: chat.avatar,
     lastMessage: chat.lastMessage,
     lastMessageAt: chat.lastMessageAt,
+    unreadCount: chat.unreadCount,
     metadata: chat.metadata,
   }));
 
@@ -50,7 +52,7 @@ export function ChatsPageContent({ chats, currentUserId }: Props) {
       onSelectChat={handleSelectChat}
       currentUserId={currentUserId}
       messages={[]}
-      onSendMessage={() => {}}
+      onSendMessage={async () => {}}
     />
   );
 }

@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { sendCommunityChatMessageAction } from "@/actions/messages";
+import {
+  blockDirectMessageUserAction,
+  deleteDirectMessageThreadAction,
+  deleteMessageAction,
+  sendCommunityChatMessageAction,
+  sendDirectMessageAction,
+  toggleMessageLikeAction,
+} from "@/actions/messages";
 import { ChatLayout, type ChatItem, type ChatHeaderData, type ChatDetailsData } from "@/components/chat";
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 type UnifiedChat = {
   id: string;
@@ -12,6 +19,7 @@ type UnifiedChat = {
   avatar: string | null;
   lastMessage: string | null;
   lastMessageAt: Date | null;
+  unreadCount?: number;
   metadata?: {
     username?: string;
     slug?: string;
@@ -34,9 +42,24 @@ type ChatDetail = {
     senderName: string;
     senderAvatar?: string | null;
     text: string;
+    imageUrl?: string | null;
+    isDeleted?: boolean;
+    likeCount?: number;
+    likedByCurrentUser?: boolean;
+    replyTo?: {
+      id: string;
+      senderId: string;
+      senderName: string;
+      text: string;
+      imageUrl?: string | null;
+      isDeleted?: boolean;
+    } | null;
     createdAt: Date;
   }>;
+  initialScrollTargetMessageId?: string | null;
+  seenMessageId?: string | null;
   canChat: boolean;
+  accessNotice?: string;
   details: {
     type: "dm" | "community";
     title: string;
@@ -45,11 +68,14 @@ type ChatDetail = {
     creator?: string;
     createdAt?: Date;
     avatar?: string | null;
+    currentUserId?: string;
     members?: Array<{
       id: string;
+      username: string;
       name: string;
       avatar?: string | null;
       role?: "OWNER" | "MODERATOR" | "MEMBER";
+      isCurrentUser?: boolean;
     }>;
     sharedMedia?: Array<{
       id: string;
@@ -58,6 +84,11 @@ type ChatDetail = {
       thumbnailUrl?: string;
       createdAt: Date;
     }>;
+    profileUsername?: string;
+    profileBio?: string;
+    profileLocation?: string;
+    isBlocked?: boolean;
+    isBlockedByCurrentUser?: boolean;
     canAddMembers?: boolean;
     canLeave?: boolean;
   };
@@ -70,67 +101,221 @@ type Props = {
   currentUserId: string;
 };
 
-export function ChatPageContent({ chats, chatDetails, chatId, currentUserId }: Props) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-
-  // Map raw chats to ChatItem type
-  const chatItems: ChatItem[] = chats.map((chat) => ({
+function mapChatsToItems(chats: UnifiedChat[], selectedChatId: string) {
+  return chats.map((chat) => ({
     id: chat.id,
     type: chat.type,
     title: chat.title,
     avatar: chat.avatar,
     lastMessage: chat.lastMessage,
     lastMessageAt: chat.lastMessageAt,
+    unreadCount: chat.id === selectedChatId ? 0 : chat.unreadCount,
     metadata: chat.metadata,
   }));
+}
+
+export function ChatPageContent({ chats, chatDetails, chatId, currentUserId }: Props) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [chatItemsState, setChatItemsState] = useState<ChatItem[]>(() => mapChatsToItems(chats, chatId));
+  const [chatDetailsState, setChatDetailsState] = useState(chatDetails);
+  const [replyTarget, setReplyTarget] = useState<ChatDetail["messages"][number] | null>(null);
+
+  useEffect(() => {
+    setChatItemsState(mapChatsToItems(chats, chatId));
+  }, [chatId, chats]);
+
+  useEffect(() => {
+    setChatDetailsState(chatDetails);
+    setReplyTarget(null);
+  }, [chatDetails]);
+
+  // Map raw chats to ChatItem type
+  const chatItems: ChatItem[] = chatItemsState;
 
   // Prepare header data
   const headerData: ChatHeaderData = {
-    title: chatDetails.title,
-    description: chatDetails.description,
-    avatar: chatDetails.avatar ?? undefined,
-    type: chatDetails.type,
-    memberCount: chatDetails.type === "community" ? chatDetails.details.memberCount : undefined,
+    title: chatDetailsState.title,
+    description: chatDetailsState.description,
+    avatar: chatDetailsState.avatar ?? undefined,
+    type: chatDetailsState.type,
+    memberCount: chatDetailsState.type === "community" ? chatDetailsState.details.memberCount : undefined,
   };
 
   // Prepare details panel data
   const detailsData: ChatDetailsData | undefined = {
-    type: chatDetails.type,
-    title: chatDetails.details.title,
-    description: chatDetails.details.description,
-    memberCount: chatDetails.details.memberCount,
-    creator: chatDetails.details.creator,
-    createdAt: chatDetails.details.createdAt,
-    avatar: chatDetails.details.avatar,
-    members: chatDetails.details.members,
-    sharedMedia: chatDetails.details.sharedMedia,
-    canAddMembers: chatDetails.details.canAddMembers,
-    canLeave: chatDetails.details.canLeave,
+    type: chatDetailsState.type,
+    title: chatDetailsState.details.title,
+    description: chatDetailsState.details.description,
+    memberCount: chatDetailsState.details.memberCount,
+    creator: chatDetailsState.details.creator,
+    createdAt: chatDetailsState.details.createdAt,
+    avatar: chatDetailsState.details.avatar,
+    members: chatDetailsState.details.members,
+    sharedMedia: chatDetailsState.details.sharedMedia,
+    profileUsername: chatDetailsState.details.profileUsername,
+    profileBio: chatDetailsState.details.profileBio,
+    profileLocation: chatDetailsState.details.profileLocation,
+    isBlocked: chatDetailsState.details.isBlocked,
+    isBlockedByCurrentUser: chatDetailsState.details.isBlockedByCurrentUser,
+    chatId,
+    canAddMembers: chatDetailsState.details.canAddMembers,
+    canLeave: chatDetailsState.details.canLeave,
   };
 
-  async function handleSendMessage(message: string) {
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function markAsRead() {
+      setChatItemsState((currentChats) =>
+        currentChats.map((chat) =>
+          chat.id === chatId
+            ? {
+                ...chat,
+                unreadCount: 0,
+              }
+            : chat,
+        ),
+      );
+
+      try {
+        await fetch("/api/chats/read", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            chatId,
+            chatType: chatDetailsState.type,
+          }),
+          signal: controller.signal,
+          keepalive: true,
+        });
+
+        setChatItemsState((currentChats) =>
+          currentChats.map((chat) =>
+            chat.id === chatId
+              ? {
+                  ...chat,
+                  unreadCount: 0,
+                }
+              : chat,
+          ),
+        );
+        window.dispatchEvent(new CustomEvent("syncup:counts-refresh"));
+      } catch {
+        // Quietly ignore read sync failures; the next refresh can retry.
+      }
+    }
+
+    void markAsRead();
+
+    return () => controller.abort();
+  }, [chatDetailsState.type, chatId]);
+
+  async function handleSendMessage(formData: FormData) {
+    await new Promise<void>((resolve, reject) => {
+      startTransition(() => {
+        void (async () => {
+          try {
+            if (replyTarget) {
+              formData.append("replyToMessageId", replyTarget.id);
+            }
+
+            if (chatDetailsState.type === "community") {
+              formData.append("communityId", chatId);
+              await sendCommunityChatMessageAction(formData);
+            } else {
+              formData.append("threadId", chatId);
+              await sendDirectMessageAction(formData);
+            }
+
+            setChatItemsState((currentChats) =>
+              currentChats.map((chat) =>
+                chat.id === chatId
+                  ? {
+                      ...chat,
+                      unreadCount: 0,
+                    }
+                  : chat,
+              ),
+            );
+            setReplyTarget(null);
+            window.dispatchEvent(new CustomEvent("syncup:counts-refresh"));
+            router.refresh();
+            resolve();
+          } catch (error) {
+            console.error("Failed to send message:", error);
+            reject(error);
+          }
+        })();
+      });
+    });
+  }
+
+  async function handleToggleLike(messageId: string) {
+    startTransition(() => {
+      void (async () => {
+        try {
+          await toggleMessageLikeAction(chatDetailsState.type, chatId, messageId);
+          router.refresh();
+        } catch (error) {
+          console.error("Failed to toggle message like:", error);
+        }
+      })();
+    });
+  }
+
+  async function handleDeleteMessage(messageId: string) {
+    startTransition(() => {
+      void (async () => {
+        try {
+          await deleteMessageAction(chatDetailsState.type, chatId, messageId);
+          if (replyTarget?.id === messageId) {
+            setReplyTarget(null);
+          }
+          router.refresh();
+        } catch (error) {
+          console.error("Failed to delete message:", error);
+        }
+      })();
+    });
+  }
+
+  async function handleBlockChat() {
     startTransition(async () => {
       try {
-        if (chatDetails.type === "community") {
-          // Create form data for server action
-          const formData = new FormData();
-          formData.append("communityId", chatId);
-          formData.append("message", message);
-          
-          await sendCommunityChatMessageAction(formData);
-          // Refresh the page to show the new message
-          router.refresh();
-        }
-        // TODO: Handle DM message sending when action is available
+        await blockDirectMessageUserAction(chatId);
+        window.dispatchEvent(new CustomEvent("syncup:counts-refresh"));
+        router.refresh();
       } catch (error) {
-        console.error("Failed to send message:", error);
+        console.error("Failed to block user:", error);
+      }
+    });
+  }
+
+  async function handleDeleteChat() {
+    startTransition(async () => {
+      try {
+        await deleteDirectMessageThreadAction(chatId);
+        window.dispatchEvent(new CustomEvent("syncup:counts-refresh"));
+        router.push("/chats");
+        router.refresh();
+      } catch (error) {
+        console.error("Failed to delete chat:", error);
       }
     });
   }
 
   const handleSelectChat = (id: string) => {
     router.push(`/chats/${id}`);
+  };
+
+  const handleReplyToMessage = (message: ChatDetail["messages"][number]) => {
+    setReplyTarget({
+      ...message,
+      senderName: message.senderId === currentUserId ? "You" : message.senderName,
+    });
   };
 
   return (
@@ -140,10 +325,23 @@ export function ChatPageContent({ chats, chatDetails, chatId, currentUserId }: P
       onSelectChat={handleSelectChat}
       currentUserId={currentUserId}
       currentChatHeader={headerData}
-      messages={chatDetails.messages}
+      messages={chatDetailsState.messages}
+      initialScrollTargetMessageId={chatDetailsState.initialScrollTargetMessageId}
+      seenMessageId={chatDetailsState.seenMessageId}
       onSendMessage={handleSendMessage}
-      canChat={chatDetails.canChat && !isPending}
+      onDeleteMessage={handleDeleteMessage}
+      onReplyToMessage={handleReplyToMessage}
+      onToggleMessageLike={handleToggleLike}
+      replyTarget={replyTarget}
+      onCancelReply={() => setReplyTarget(null)}
+      canChat={chatDetailsState.canChat}
+      composerDisabled={isPending}
+      composerPlaceholder={chatDetailsState.accessNotice ?? undefined}
+      allowAttachments={chatDetailsState.type === "dm" && chatDetailsState.canChat}
       chatDetailsData={detailsData}
+      onBlockChat={chatDetailsState.type === "dm" ? handleBlockChat : undefined}
+      onDeleteChat={chatDetailsState.type === "dm" ? handleDeleteChat : undefined}
+      detailsActionPending={isPending}
     />
   );
 }

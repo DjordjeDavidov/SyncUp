@@ -4,6 +4,14 @@ import { Prisma } from "@/lib/prisma-generated";
 import { activity_status, community_visibility, invite_visibility } from "@/lib/prisma-generated";
 import { getCommunityCategoryLabel } from "@/lib/community-categories";
 import { prisma } from "@/lib/prisma";
+import {
+  ensureCommunityMemberLastReadAtColumn,
+  ensureDirectMessageImageColumns,
+  ensureDirectThreadHiddenAtColumn,
+  ensureDirectThreadLastReadAtColumn,
+} from "@/server/chat-read-state";
+import { isUserBlocked } from "@/server/direct-messages";
+import { ensureCommunityMessageInteractionSchema, ensureDirectMessageInteractionSchema } from "@/server/message-interaction-schema";
 import { formatDistanceToNow } from "@/lib/utils";
 
 const feedPostInclude = {
@@ -201,7 +209,11 @@ export async function getHomeFeedData(userId: string) {
         profiles: true,
         user_interests: true,
         user_vibe_tags: true,
-        community_members: true,
+        community_members: {
+          select: {
+            community_id: true,
+          },
+        },
       },
       take: 40,
     }),
@@ -441,7 +453,11 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
           orderBy: { created_at: "desc" },
         },
         community_members: {
-          include: {
+          select: {
+            community_id: true,
+            user_id: true,
+            role: true,
+            joined_at: true,
             communities: {
               include: {
                 _count: {
@@ -620,6 +636,8 @@ export async function getProfilePageDataByUsername(viewerId: string, username: s
 }
 
 export async function getMessagesPageData(userId: string) {
+  await ensureDirectMessageImageColumns();
+
   const [threads, communityChats] = await Promise.all([
     prisma.direct_message_threads.findMany({
       where: {
@@ -631,7 +649,8 @@ export async function getMessagesPageData(userId: string) {
       },
       include: {
         participants: {
-          include: {
+          select: {
+            user_id: true,
             users: {
               include: {
                 profiles: true,
@@ -881,7 +900,11 @@ export async function getCommunitiesPageData(userId: string) {
       where: {
         user_id: userId,
       },
-      include: {
+      select: {
+        community_id: true,
+        user_id: true,
+        role: true,
+        joined_at: true,
         communities: {
           include: {
             _count: {
@@ -1524,25 +1547,54 @@ function createFallbackExploreImage(seed: string, kind: "photo" | "community" | 
    ======================== */
 
 export async function getUnifiedChatsData(userId: string) {
+  const [hasDmReadState, hasCommunityReadState, hasDmHiddenState, hasDmMedia, _hasDmInteractions, _hasCommunityInteractions] = await Promise.all([
+    ensureDirectThreadLastReadAtColumn(),
+    ensureCommunityMemberLastReadAtColumn(),
+    ensureDirectThreadHiddenAtColumn(),
+    ensureDirectMessageImageColumns(),
+    ensureDirectMessageInteractionSchema(),
+    ensureCommunityMessageInteractionSchema(),
+  ]);
+
   const [threads, communityChats] = await Promise.all([
     prisma.direct_message_threads.findMany({
       where: {
         participants: {
-          some: {
-            user_id: userId,
-          },
+          some: hasDmHiddenState
+            ? {
+                user_id: userId,
+                hidden_at: null,
+              }
+            : {
+                user_id: userId,
+              },
         },
       },
       include: {
-        participants: {
-          include: {
-            users: {
-              include: {
-                profiles: true,
+        participants: hasDmReadState
+          ? {
+              select: {
+                user_id: true,
+                last_read_at: true,
+                ...(hasDmHiddenState ? { hidden_at: true } : {}),
+                users: {
+                  include: {
+                    profiles: true,
+                  },
+                },
+              },
+            }
+          : {
+              select: {
+                user_id: true,
+                ...(hasDmHiddenState ? { hidden_at: true } : {}),
+                users: {
+                  include: {
+                    profiles: true,
+                  },
+                },
               },
             },
-          },
-        },
         messages: {
           orderBy: {
             created_at: "asc",
@@ -1594,6 +1646,24 @@ export async function getUnifiedChatsData(userId: string) {
             community_members: true,
           },
         },
+        community_members: hasCommunityReadState
+          ? {
+              where: {
+                user_id: userId,
+              },
+              select: {
+                user_id: true,
+                last_read_at: true,
+              },
+            }
+          : {
+              where: {
+                user_id: userId,
+              },
+              select: {
+                user_id: true,
+              },
+            },
       },
       orderBy: { updated_at: "desc" },
       take: 50,
@@ -1606,6 +1676,22 @@ export async function getUnifiedChatsData(userId: string) {
       .map((thread) => {
         const participant = thread.participants.find((item) => item.user_id !== userId)?.users;
         const lastMessage = thread.messages.at(-1);
+        const currentParticipant = thread.participants.find((item) => item.user_id === userId);
+        const currentParticipantLastReadAt =
+          hasDmReadState &&
+          currentParticipant &&
+          "last_read_at" in currentParticipant
+            ? currentParticipant.last_read_at
+            : null;
+        const unreadCount = thread.messages.filter(
+          (message) => {
+            if (message.sender_id === userId || !currentParticipantLastReadAt) {
+              return false;
+            }
+
+            return message.created_at > currentParticipantLastReadAt;
+          },
+        ).length;
 
         if (!participant) {
           return null;
@@ -1616,8 +1702,16 @@ export async function getUnifiedChatsData(userId: string) {
           type: "dm" as const,
           title: participant.profiles?.full_name ?? participant.username,
           avatar: participant.profiles?.avatar_url ?? null,
-          lastMessage: lastMessage?.message ?? null,
+          lastMessage:
+            lastMessage
+              ? "is_deleted" in lastMessage && lastMessage.is_deleted
+                ? "Deleted message"
+                : hasDmMedia && "image_url" in lastMessage && lastMessage.image_url && !lastMessage.message
+                ? "Sent an image"
+                : lastMessage.message || null
+              : null,
           lastMessageAt: lastMessage?.created_at ?? null,
+          unreadCount,
           metadata: {
             username: participant.username,
           },
@@ -1628,14 +1722,30 @@ export async function getUnifiedChatsData(userId: string) {
     // Community Chats
     ...communityChats.map((community) => {
       const lastMessage = community.community_chat?.messages.at(-1);
+      const membership = community.community_members[0];
+      const membershipLastReadAt =
+        hasCommunityReadState &&
+        membership &&
+        "last_read_at" in membership
+          ? membership.last_read_at
+          : null;
+      const unreadCount =
+        community.community_chat?.messages.filter((message) => {
+          if (message.sender_id === userId || !membershipLastReadAt) {
+            return false;
+          }
+
+          return message.created_at > membershipLastReadAt;
+        }).length ?? 0;
 
       return {
         id: community.id,
         type: "community" as const,
         title: community.name,
         avatar: community.cover_url ?? null,
-        lastMessage: lastMessage?.message ?? null,
+        lastMessage: lastMessage ? ("is_deleted" in lastMessage && lastMessage.is_deleted ? "Deleted message" : lastMessage.message) : null,
         lastMessageAt: lastMessage?.created_at ?? null,
+        unreadCount,
         metadata: {
           slug: community.slug,
           memberCount: community._count.community_members,
@@ -1647,26 +1757,102 @@ export async function getUnifiedChatsData(userId: string) {
     }),
   ];
 
-  return chats;
+  return chats
+    .filter((chat): chat is NonNullable<typeof chat> => chat !== null)
+    .sort((left, right) => {
+    const leftTime = left.lastMessageAt?.getTime() ?? 0;
+    const rightTime = right.lastMessageAt?.getTime() ?? 0;
+
+    return rightTime - leftTime;
+    });
+}
+
+export async function getUnreadNavCounts(userId: string) {
+  const [chats, activityUnreadCount] = await Promise.all([
+    getUnifiedChatsData(userId),
+    prisma.notifications.count({
+      where: {
+        user_id: userId,
+        read: false,
+      },
+    }),
+  ]);
+
+  return {
+    messagesUnreadCount: chats.reduce((total, chat) => total + (chat.unreadCount ?? 0), 0),
+    activityUnreadCount,
+  };
 }
 
 export async function getUnifiedChatDetails(userId: string, chatId: string) {
+  const [hasDmReadState, hasDmMedia, hasDmHiddenState] = await Promise.all([
+    ensureDirectThreadLastReadAtColumn(),
+    ensureDirectMessageImageColumns(),
+    ensureDirectThreadHiddenAtColumn(),
+  ]);
+  await Promise.all([
+    ensureDirectMessageInteractionSchema(),
+    ensureCommunityMessageInteractionSchema(),
+  ]);
+
   // Try to find as a DM thread first
   const dmThread = await prisma.direct_message_threads.findUnique({
     where: { id: chatId },
     include: {
-      participants: {
-        include: {
-          users: {
-            include: {
-              profiles: true,
+      participants: hasDmReadState
+        ? {
+            select: {
+              user_id: true,
+              last_read_at: true,
+              ...(hasDmHiddenState ? { hidden_at: true } : {}),
+              users: {
+                include: {
+                  profiles: true,
+                },
+              },
+            },
+          }
+        : {
+            select: {
+              user_id: true,
+              ...(hasDmHiddenState ? { hidden_at: true } : {}),
+              users: {
+                include: {
+                  profiles: true,
+                },
+              },
             },
           },
-        },
-      },
       messages: {
         orderBy: { created_at: "asc" },
         include: {
+          likes: {
+            where: {
+              user_id: userId,
+            },
+            select: {
+              user_id: true,
+            },
+          },
+          _count: {
+            select: {
+              likes: true,
+            },
+          },
+          reply_to_message: {
+            select: {
+              id: true,
+              sender_id: true,
+              message: true,
+              image_url: true,
+              is_deleted: true,
+              users: {
+                include: {
+                  profiles: true,
+                },
+              },
+            },
+          },
           users: {
             include: {
               profiles: true,
@@ -1678,32 +1864,72 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
   });
 
   if (dmThread) {
+    const currentParticipant = dmThread.participants.find((item) => item.user_id === userId);
     const participant = dmThread.participants.find((item) => item.user_id !== userId)?.users;
-    const isMember = dmThread.participants.some((item) => item.user_id === userId);
+    const recipientParticipant = dmThread.participants.find((item) => item.user_id !== userId);
+    const isMember = Boolean(currentParticipant);
+    const isHidden =
+      hasDmHiddenState &&
+      currentParticipant &&
+      "hidden_at" in currentParticipant
+        ? Boolean(currentParticipant.hidden_at)
+        : false;
+    const recipientLastReadAt =
+      hasDmReadState &&
+      recipientParticipant &&
+      "last_read_at" in recipientParticipant
+        ? recipientParticipant.last_read_at
+        : null;
 
-    if (!participant || !isMember) {
+    if (!participant || !isMember || isHidden) {
       return null;
     }
 
-    // Extract shared media from messages (placeholder - messages with image URLs)
-    const sharedMedia = dmThread.messages
-      .filter((message) => message.message.includes("http") && /\.(jpg|jpeg|png|gif|webp)/i.test(message.message))
-      .slice(-9) // Get last 9 media items
-      .map((message) => {
-        const urlMatch = message.message.match(/(https?:\/\/[^\s]+)/);
-        return {
-          id: message.id,
-          type: "image" as const,
-          url: urlMatch ? urlMatch[1] : "",
-          createdAt: message.created_at,
-        };
-      });
+    const latestOutgoingMessage = [...dmThread.messages]
+      .reverse()
+      .find((message) => message.sender_id === userId);
+    const currentParticipantLastReadAt =
+      hasDmReadState &&
+      currentParticipant &&
+      "last_read_at" in currentParticipant
+        ? currentParticipant.last_read_at
+        : null;
+    const firstUnreadMessageId =
+      currentParticipantLastReadAt
+        ? dmThread.messages.find(
+            (message) =>
+              message.sender_id !== userId &&
+              message.created_at.getTime() > currentParticipantLastReadAt.getTime(),
+          )?.id ?? null
+        : null;
+    const seenMessageId =
+      recipientLastReadAt &&
+      latestOutgoingMessage &&
+      latestOutgoingMessage.created_at.getTime() <= recipientLastReadAt.getTime()
+        ? latestOutgoingMessage.id
+        : null;
+
+    const blockedByUserId = await isUserBlocked(userId, participant.id);
+    const isBlocked = Boolean(blockedByUserId);
+    const sharedMedia = hasDmMedia
+      ? [...dmThread.messages]
+          .filter((message) => "image_url" in message && Boolean(message.image_url))
+          .reverse()
+          .map((message) => ({
+            id: message.id,
+            type: "image" as const,
+            url: "image_url" in message ? message.image_url ?? "" : "",
+            thumbnailUrl: "image_url" in message ? message.image_url ?? "" : "",
+            createdAt: message.created_at,
+          }))
+          .filter((media) => Boolean(media.url))
+      : [];
 
     return {
       type: "dm" as const,
       id: dmThread.id,
       title: participant.profiles?.full_name ?? participant.username,
-      description: undefined,
+      description: participant.profiles?.bio ?? undefined,
       avatar: participant.profiles?.avatar_url ?? null,
       messages: dmThread.messages.map((message) => ({
         id: message.id,
@@ -1711,14 +1937,44 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
         senderName: message.users.profiles?.full_name ?? message.users.username,
         senderAvatar: message.users.profiles?.avatar_url ?? null,
         text: message.message,
+        imageUrl: hasDmMedia && "image_url" in message ? message.image_url ?? null : null,
+        isDeleted: "is_deleted" in message ? message.is_deleted : false,
+        likeCount: "_count" in message ? message._count.likes : 0,
+        likedByCurrentUser: "likes" in message ? message.likes.length > 0 : false,
+        replyTo: message.reply_to_message
+          ? {
+              id: message.reply_to_message.id,
+              senderId: message.reply_to_message.sender_id,
+              senderName:
+                message.reply_to_message.users.profiles?.full_name ?? message.reply_to_message.users.username,
+              text: message.reply_to_message.is_deleted ? "Deleted message" : message.reply_to_message.message,
+              imageUrl: message.reply_to_message.is_deleted ? null : message.reply_to_message.image_url ?? null,
+              isDeleted: message.reply_to_message.is_deleted,
+            }
+          : null,
         createdAt: message.created_at,
       })),
-      canChat: true,
+      initialScrollTargetMessageId: firstUnreadMessageId,
+      seenMessageId,
+      canChat: !isBlocked,
+      accessNotice:
+        blockedByUserId === userId
+          ? "You blocked this person. Unblock them to send more messages."
+          : isBlocked
+            ? "You cannot message this person right now."
+            : undefined,
       details: {
         type: "dm" as const,
         title: participant.profiles?.full_name ?? participant.username,
+        description: participant.profiles?.bio ?? undefined,
         avatar: participant.profiles?.avatar_url ?? null,
+        currentUserId: userId,
         sharedMedia,
+        profileUsername: participant.username,
+        profileBio: participant.profiles?.bio ?? undefined,
+        profileLocation: [participant.profiles?.city, participant.profiles?.country].filter(Boolean).join(", ") || undefined,
+        isBlocked,
+        isBlockedByCurrentUser: blockedByUserId === userId,
       },
     };
   }
@@ -1732,6 +1988,32 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
           messages: {
             orderBy: { created_at: "asc" },
             include: {
+              likes: {
+                where: {
+                  user_id: userId,
+                },
+                select: {
+                  user_id: true,
+                },
+              },
+              _count: {
+                select: {
+                  likes: true,
+                },
+              },
+              reply_to_message: {
+                select: {
+                  id: true,
+                  sender_id: true,
+                  message: true,
+                  is_deleted: true,
+                  users: {
+                    include: {
+                      profiles: true,
+                    },
+                  },
+                },
+              },
               users: {
                 include: {
                   profiles: true,
@@ -1748,7 +2030,11 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
       },
       community_members: {
         where: { user_id: userId },
-        include: {
+        select: {
+          community_id: true,
+          user_id: true,
+          role: true,
+          joined_at: true,
           users: {
             include: {
               profiles: true,
@@ -1771,6 +2057,20 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
   const isMember = community.community_members.length > 0;
   const canChat = isMember;
   const userRole = community.community_members[0]?.role;
+  const membershipLastReadAt =
+    community.community_members[0] &&
+    "last_read_at" in community.community_members[0] &&
+    community.community_members[0].last_read_at instanceof Date
+      ? community.community_members[0].last_read_at
+      : null;
+  const firstUnreadCommunityMessageId =
+    membershipLastReadAt
+      ? community.community_chat?.messages.find(
+          (message) =>
+            message.sender_id !== userId &&
+            message.created_at.getTime() > membershipLastReadAt.getTime(),
+        )?.id ?? null
+      : null;
 
   // Extract shared media from messages (placeholder - messages with image URLs)
   const sharedMedia = community.community_chat?.messages
@@ -1801,9 +2101,11 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
 
   const members = allMembers.map((member) => ({
     id: member.users.id,
+    username: member.users.username,
     name: member.users.profiles?.full_name ?? member.users.username,
     avatar: member.users.profiles?.avatar_url ?? null,
     role: member.role,
+    isCurrentUser: member.users.id === userId,
   }));
 
   return {
@@ -1819,8 +2121,23 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
         senderName: message.users.profiles?.full_name ?? message.users.username,
         senderAvatar: message.users.profiles?.avatar_url ?? null,
         text: message.message,
+        isDeleted: "is_deleted" in message ? message.is_deleted : false,
+        likeCount: "_count" in message ? message._count.likes : 0,
+        likedByCurrentUser: "likes" in message ? message.likes.length > 0 : false,
+        replyTo: message.reply_to_message
+          ? {
+              id: message.reply_to_message.id,
+              senderId: message.reply_to_message.sender_id,
+              senderName:
+                message.reply_to_message.users.profiles?.full_name ?? message.reply_to_message.users.username,
+              text: message.reply_to_message.is_deleted ? "Deleted message" : message.reply_to_message.message,
+              imageUrl: null,
+              isDeleted: message.reply_to_message.is_deleted,
+            }
+          : null,
         createdAt: message.created_at,
       })) ?? [],
+    initialScrollTargetMessageId: firstUnreadCommunityMessageId,
     canChat,
     details: {
       type: "community" as const,
@@ -1829,6 +2146,7 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
       memberCount: community._count.community_members,
       creator: community.users.profiles?.full_name ?? community.users.username,
       createdAt: community.created_at,
+      currentUserId: userId,
       members,
       sharedMedia,
       canAddMembers: userRole === "OWNER" || userRole === "MODERATOR",

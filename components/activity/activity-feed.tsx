@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { CalendarCheck2, CheckCircle2, Heart, MessageCircle, Sparkles, Trash2, UserPlus, Users } from "lucide-react";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo } from "react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
 
 type Person = {
@@ -438,6 +438,38 @@ function Section({
 }
 
 export function ActivityFeed({ currentUser, notifications, people, communities, activities }: Props) {
+  useEffect(() => {
+    const unreadIds = notifications.filter((notification) => !notification.read).map((notification) => notification.id);
+
+    if (unreadIds.length === 0) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function markAllRead() {
+      try {
+        await fetch("/api/notifications", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "markAllRead" }),
+          signal: controller.signal,
+          keepalive: true,
+        });
+
+        window.dispatchEvent(new CustomEvent("syncup:counts-refresh"));
+      } catch {
+        // Ignore background mark-as-read failures.
+      }
+    }
+
+    void markAllRead();
+
+    return () => controller.abort();
+  }, [notifications]);
+
   const allItems = useMemo(() => {
     const realItems = normalizeNotifications(notifications);
     const seededItems = buildSeedItems(currentUser, people, communities, activities);

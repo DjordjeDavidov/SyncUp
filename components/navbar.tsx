@@ -4,7 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { Heart, Home, MessageCircleMore, Sparkles, Users2 } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { GlobalSearch } from "@/components/global-search";
 import { LogoutButton } from "@/components/logout-button";
 import { getInitials } from "@/lib/utils";
@@ -24,11 +25,19 @@ type NavbarProps = {
 export function Navbar({ user, logoutAction }: NavbarProps) {
   const [isVisible, setIsVisible] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState<{ messagesUnreadCount: number; activityUnreadCount: number } | null>(null);
+  const [isClient, setIsClient] = useState(false);
+  const [profileMenuPosition, setProfileMenuPosition] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const lastScrollY = useRef(0);
-  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileMenuTriggerWrapperRef = useRef<HTMLDivElement | null>(null);
+  const profileMenuPanelRef = useRef<HTMLDivElement | null>(null);
   const profileMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstProfileMenuItemRef = useRef<HTMLAnchorElement | null>(null);
   const pathname = usePathname();
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -54,7 +63,12 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!profileMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+
+      if (
+        !profileMenuTriggerWrapperRef.current?.contains(target) &&
+        !profileMenuPanelRef.current?.contains(target)
+      ) {
         setIsProfileMenuOpen(false);
       }
     };
@@ -86,6 +100,88 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
       firstProfileMenuItemRef.current?.focus();
     }
   }, [isProfileMenuOpen]);
+
+  useLayoutEffect(() => {
+    if (!isProfileMenuOpen || !profileMenuButtonRef.current) {
+      return;
+    }
+
+    const updatePosition = () => {
+      const buttonRect = profileMenuButtonRef.current?.getBoundingClientRect();
+
+      if (!buttonRect) {
+        return;
+      }
+
+      setProfileMenuPosition({
+        top: buttonRect.bottom + 12,
+        right: Math.max(window.innerWidth - buttonRect.right, 16),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isProfileMenuOpen]);
+
+  useEffect(() => {
+    if (!user) {
+      setUnreadCounts(null);
+      return;
+    }
+
+    let isActive = true;
+    setUnreadCounts(null);
+
+    async function loadUnreadCounts() {
+      try {
+        const response = await fetch("/api/nav-counts", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = (await response.json()) as { messagesUnreadCount: number; activityUnreadCount: number };
+
+        if (isActive) {
+          setUnreadCounts(data);
+        }
+      } catch {
+        // Ignore transient badge refresh failures.
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadUnreadCounts();
+    }, 30000);
+
+    const handleFocus = () => {
+      void loadUnreadCounts();
+    };
+
+    const handleRefresh = () => {
+      void loadUnreadCounts();
+    };
+
+    void loadUnreadCounts();
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("syncup:counts-refresh", handleRefresh as EventListener);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("syncup:counts-refresh", handleRefresh as EventListener);
+    };
+  }, [pathname, user]);
 
   const signedInNavItems = [
     {
@@ -183,7 +279,7 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
           </div>
           <Link
             aria-label="Messages"
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border text-slate-300 transition-all duration-200 ${
+            className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border text-slate-300 transition-all duration-200 ${
               pathname === "/chats" || pathname.startsWith("/chats/")
                 ? "border-sky-300/20 bg-sky-400/10 text-sky-100 shadow-[0_10px_24px_rgba(56,189,248,0.12)]"
                 : "border-white/8 bg-white/[0.04] hover:border-sky-300/20 hover:bg-sky-400/10 hover:text-sky-100 active:scale-[0.99]"
@@ -191,10 +287,11 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
             href="/chats"
           >
             <MessageCircleMore className="h-4.5 w-4.5" />
+            <UnreadBadge count={unreadCounts?.messagesUnreadCount ?? 0} max={9} />
           </Link>
           <Link
             aria-label="Activity"
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border text-slate-300 transition-all duration-200 ${
+            className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border text-slate-300 transition-all duration-200 ${
               pathname === "/activity"
                 ? "border-rose-300/20 bg-rose-400/10 text-rose-100 shadow-[0_10px_24px_rgba(251,113,133,0.12)]"
                 : "border-white/8 bg-white/[0.04] hover:border-rose-300/20 hover:bg-rose-400/10 hover:text-rose-100 active:scale-[0.99]"
@@ -202,8 +299,9 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
             href="/activity"
           >
             <Heart className="h-4.5 w-4.5" />
+            <UnreadBadge count={unreadCounts?.activityUnreadCount ?? 0} max={99} />
           </Link>
-          <div className="relative" ref={profileMenuRef}>
+          <div className="relative" ref={profileMenuTriggerWrapperRef}>
             <button
               aria-controls="profile-menu"
               aria-expanded={isProfileMenuOpen}
@@ -242,45 +340,6 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
                 <p className="truncate text-xs text-slate-400">@{user.username}</p>
               </div>
             </button>
-
-            <div
-              className={`absolute right-0 top-[calc(100%+0.75rem)] z-40 w-60 origin-top-right rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(14,20,36,0.98),rgba(9,14,26,0.98))] p-2 shadow-[0_22px_50px_rgba(2,6,23,0.48),0_0_24px_rgba(99,102,241,0.1)] transition-all duration-200 ${
-                isProfileMenuOpen
-                  ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
-                  : "pointer-events-none -translate-y-2 scale-[0.98] opacity-0"
-              }`}
-              id="profile-menu"
-              role="menu"
-            >
-              <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.04] px-3 py-3">
-                <p className="truncate text-sm font-semibold text-slate-100">
-                  {user.profile?.full_name ?? user.username}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">@{user.username}</p>
-              </div>
-              {profileMenuItems.map((item) => (
-                <Link
-                  className="flex items-center rounded-xl px-3 py-2.5 text-sm font-medium text-slate-200 outline-none transition-all duration-200 hover:bg-white/[0.05] hover:text-white focus:bg-white/[0.05] focus:text-white"
-                  href={item.href}
-                  key={item.label}
-                  onClick={() => setIsProfileMenuOpen(false)}
-                  ref={item.label === "View Profile" ? firstProfileMenuItemRef : undefined}
-                  role="menuitem"
-                  tabIndex={isProfileMenuOpen ? 0 : -1}
-                >
-                  {item.label}
-                </Link>
-              ))}
-              <div className="mt-2 border-t border-white/8 pt-2">
-                {logoutAction ? (
-                  <LogoutButton
-                    action={logoutAction}
-                    className="w-full justify-start rounded-xl border-transparent bg-transparent px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:border-white/0 hover:bg-white/[0.05] hover:text-white focus:bg-white/[0.05] focus:text-white"
-                    label="Logout"
-                  />
-                ) : null}
-              </div>
-            </div>
           </div>
         </div>
       ) : (
@@ -299,6 +358,77 @@ export function Navbar({ user, logoutAction }: NavbarProps) {
           </Link>
         </div>
       )}
+      {user && isClient
+        ? createPortal(
+            <div
+              aria-hidden={!isProfileMenuOpen}
+              className={`fixed inset-0 z-[120] transition-opacity duration-200 ${
+                isProfileMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+              }`}
+            >
+              <button
+                aria-label="Close profile menu"
+                className="absolute inset-0 cursor-default bg-transparent"
+                onClick={() => setIsProfileMenuOpen(false)}
+                tabIndex={isProfileMenuOpen ? 0 : -1}
+                type="button"
+              />
+              <div
+                className={`absolute w-60 origin-top-right rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(14,20,36,0.98),rgba(9,14,26,0.98))] p-2 shadow-[0_22px_50px_rgba(2,6,23,0.48),0_0_24px_rgba(99,102,241,0.1)] transition-all duration-200 ${
+                  isProfileMenuOpen
+                    ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
+                    : "pointer-events-none -translate-y-2 scale-[0.98] opacity-0"
+                }`}
+                id="profile-menu"
+                ref={profileMenuPanelRef}
+                role="menu"
+                style={{ top: profileMenuPosition.top, right: profileMenuPosition.right }}
+              >
+                <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.04] px-3 py-3">
+                  <p className="truncate text-sm font-semibold text-slate-100">
+                    {user.profile?.full_name ?? user.username}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">@{user.username}</p>
+                </div>
+                {profileMenuItems.map((item) => (
+                  <Link
+                    className="flex items-center rounded-xl px-3 py-2.5 text-sm font-medium text-slate-200 outline-none transition-all duration-200 hover:bg-white/[0.05] hover:text-white focus:bg-white/[0.05] focus:text-white"
+                    href={item.href}
+                    key={item.label}
+                    onClick={() => setIsProfileMenuOpen(false)}
+                    ref={item.label === "View Profile" ? firstProfileMenuItemRef : undefined}
+                    role="menuitem"
+                    tabIndex={isProfileMenuOpen ? 0 : -1}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                <div className="mt-2 border-t border-white/8 pt-2">
+                  {logoutAction ? (
+                    <LogoutButton
+                      action={logoutAction}
+                      className="w-full justify-start rounded-xl border-transparent bg-transparent px-3 py-2.5 text-left text-sm font-medium text-slate-200 hover:border-white/0 hover:bg-white/[0.05] hover:text-white focus:bg-white/[0.05] focus:text-white"
+                      label="Logout"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </header>
+  );
+}
+
+function UnreadBadge({ count, max }: { count: number; max: number }) {
+  if (count <= 0) {
+    return null;
+  }
+
+  return (
+    <span className="pointer-events-none absolute -right-1.5 -top-1.5 inline-flex min-h-[1.15rem] min-w-[1.15rem] items-center justify-center rounded-full border border-slate-950 bg-rose-500 px-1 text-[10px] font-bold leading-none text-white shadow-[0_0_0_2px_rgba(2,6,23,0.9)]">
+      {count > max ? `${max}+` : count}
+    </span>
   );
 }

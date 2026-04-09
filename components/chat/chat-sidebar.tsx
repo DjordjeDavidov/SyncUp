@@ -2,8 +2,8 @@
 
 import { Search, MessageCircle, Users } from "lucide-react";
 import { useMemo, useState } from "react";
-import { cn, formatDistanceToNow, getInitials } from "@/lib/utils";
-import Link from "next/link";
+import { cn, getInitials } from "@/lib/utils";
+import { NewChatButton } from "./new-chat-button";
 
 export type ChatItem = {
   id: string;
@@ -53,13 +53,16 @@ export function ChatSidebar({ chats, selectedChatId, onSelectChat, currentUserId
       {/* Header */}
       <div className="flex-shrink-0 border-b border-white/8 p-4">
         <div className="flex items-center gap-3 mb-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white font-semibold">
-            <MessageCircle className="h-5 w-5" />
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white font-semibold">
+              <MessageCircle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-indigo-300">Messages</p>
+              <p className="text-sm font-semibold text-white">Chats</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-indigo-300">Messages</p>
-            <p className="text-sm font-semibold text-white">Chats</p>
-          </div>
+          <NewChatButton className="h-10 w-10 rounded-xl px-0 py-0" label="" />
         </div>
 
         {/* Search */}
@@ -166,7 +169,7 @@ function ChatConversationListItem({
         <div className="flex items-start justify-between gap-2">
           <p className="truncate text-sm font-semibold text-white">{chat.title}</p>
           {chat.lastMessageAt && (
-            <p className="shrink-0 text-xs text-slate-500">{formatDistanceToNow(chat.lastMessageAt)}</p>
+            <p className="shrink-0 text-xs text-slate-500">{formatChatListTime(chat.lastMessageAt)}</p>
           )}
         </div>
         {chat.lastMessage && (
@@ -188,4 +191,15 @@ function ChatConversationListItem({
       )}
     </button>
   );
+}
+
+function formatChatListTime(value: Date) {
+  const date = new Date(value);
+  const year = date.getUTCFullYear();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getUTCDate()}`.padStart(2, "0");
+  const hours = `${date.getUTCHours()}`.padStart(2, "0");
+  const minutes = `${date.getUTCMinutes()}`.padStart(2, "0");
+
+  return `${month}/${day} ${hours}:${minutes} UTC`;
 }

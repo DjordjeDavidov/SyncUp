@@ -22,7 +22,11 @@ export async function getCurrentUser() {
         },
       },
       community_members: {
-        include: {
+        select: {
+          community_id: true,
+          user_id: true,
+          role: true,
+          joined_at: true,
           communities: {
             select: {
               id: true,
