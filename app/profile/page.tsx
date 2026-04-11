@@ -18,7 +18,7 @@ import {
   updateActivityPostAction,
   voteOnPollAction,
 } from "@/actions/feed";
-import { followUserAction, unfollowUserAction } from "@/actions/profile";
+import { followUserAction, removeFollowerAction, unfollowUserAction } from "@/actions/profile";
 
 export default async function ProfilePage() {
   const currentUser = await getCurrentUserOrRedirect();
@@ -40,7 +40,10 @@ export default async function ProfilePage() {
           <main className="space-y-6">
             <ProfileHeader
               followAction={followUserAction}
+              followers={data.followers}
               isOwner
+              following={data.following}
+              removeFollowerAction={removeFollowerAction}
               stats={data.stats}
               unfollowAction={unfollowUserAction}
               user={data.user}

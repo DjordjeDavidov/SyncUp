@@ -13,6 +13,9 @@ import {
 import { isUserBlocked } from "@/server/direct-messages";
 import { ensureCommunityMessageInteractionSchema, ensureDirectMessageInteractionSchema } from "@/server/message-interaction-schema";
 import { formatDistanceToNow } from "@/lib/utils";
+import { calculateUserMatchScore, type MatchableUser } from "@/lib/user-match";
+import { computeProfileCautionState } from "@/lib/trust-safety";
+import { getMeetupFeedbackDelegate, safeFindManyMeetupFeedback } from "@/lib/meetup-feedback-store";
 
 const feedPostInclude = {
   users: {
@@ -59,6 +62,59 @@ const feedPostInclude = {
   },
   poll_votes: true,
 } satisfies Prisma.postsInclude;
+
+function createCommunityCategoryKey(category: string | null | undefined, customCategory: string | null | undefined) {
+  const value = customCategory || category;
+  return value ? value.trim().toLowerCase() : null;
+}
+
+function toMatchableUser(input: {
+  id: string;
+  profiles?: {
+    bio?: string | null;
+    city?: string | null;
+    country?: string | null;
+    social_mode?: string | null;
+  } | null;
+  user_interests?: { interest_id: string }[];
+  user_vibe_tags?: { vibe_tag_id: string }[];
+  user_activity_preferences?: { category_id: string }[];
+  user_languages?: { language_id: string }[];
+  community_members?: {
+    community_id: string;
+    communities?: {
+      category: string | null;
+      custom_category: string | null;
+    } | null;
+  }[];
+  follows_follows_follower_idTousers?: { following_id: string }[];
+  follows_follows_following_idTousers?: { follower_id: string }[];
+}): MatchableUser {
+  return {
+    id: input.id,
+    profile: input.profiles
+      ? {
+          bio: input.profiles.bio ?? null,
+          city: input.profiles.city ?? null,
+          country: input.profiles.country ?? null,
+          socialMode: input.profiles.social_mode ?? null,
+        }
+      : null,
+    interestIds: input.user_interests?.map((entry) => entry.interest_id) ?? [],
+    vibeTagIds: input.user_vibe_tags?.map((entry) => entry.vibe_tag_id) ?? [],
+    activityCategoryIds: input.user_activity_preferences?.map((entry) => entry.category_id) ?? [],
+    languageIds: input.user_languages?.map((entry) => entry.language_id) ?? [],
+    communityIds: input.community_members?.map((entry) => entry.community_id) ?? [],
+    communityCategoryKeys:
+      input.community_members
+        ?.map((entry) =>
+          createCommunityCategoryKey(entry.communities?.category, entry.communities?.custom_category),
+        )
+        .filter((value): value is string => Boolean(value)) ?? [],
+    followingIds: input.follows_follows_follower_idTousers?.map((entry) => entry.following_id) ?? [],
+    followerIds: input.follows_follows_following_idTousers?.map((entry) => entry.follower_id) ?? [],
+  };
+}
 
 async function getInviteEligibleAuthorIds(userId: string) {
   const relationships = await prisma.follows.findMany({
@@ -137,7 +193,28 @@ export async function getHomeFeedData(userId: string) {
         user_interests: { select: { interest_id: true } },
         user_vibe_tags: { select: { vibe_tag_id: true } },
         user_activity_preferences: { select: { category_id: true } },
-        community_members: { select: { community_id: true } },
+        user_languages: { select: { language_id: true } },
+        community_members: {
+          select: {
+            community_id: true,
+            communities: {
+              select: {
+                category: true,
+                custom_category: true,
+              },
+            },
+          },
+        },
+        follows_follows_follower_idTousers: {
+          select: {
+            following_id: true,
+          },
+        },
+        follows_follows_following_idTousers: {
+          select: {
+            follower_id: true,
+          },
+        },
       },
     }),
   ]);
@@ -151,6 +228,7 @@ export async function getHomeFeedData(userId: string) {
   const userInterestIds = currentUser.user_interests.map((interest) => interest.interest_id);
   const userVibeTagIds = currentUser.user_vibe_tags.map((tag) => tag.vibe_tag_id);
   const userActivityCategoryIds = currentUser.user_activity_preferences.map((pref) => pref.category_id);
+  const userLanguageIds = currentUser.user_languages.map((language) => language.language_id);
   const joinedCommunityIds = currentUser.community_members.map((membership) => membership.community_id);
 
   const peopleFilterOr: Prisma.usersWhereInput[] = [];
@@ -165,6 +243,12 @@ export async function getHomeFeedData(userId: string) {
   }
   if (userVibeTagIds.length > 0) {
     peopleFilterOr.push({ user_vibe_tags: { some: { vibe_tag_id: { in: userVibeTagIds } } } });
+  }
+  if (userActivityCategoryIds.length > 0) {
+    peopleFilterOr.push({ user_activity_preferences: { some: { category_id: { in: userActivityCategoryIds } } } });
+  }
+  if (userLanguageIds.length > 0) {
+    peopleFilterOr.push({ user_languages: { some: { language_id: { in: userLanguageIds } } } });
   }
   if (joinedCommunityIds.length > 0) {
     peopleFilterOr.push({ community_members: { some: { community_id: { in: joinedCommunityIds } } } });
@@ -207,11 +291,19 @@ export async function getHomeFeedData(userId: string) {
       },
       include: {
         profiles: true,
-        user_interests: true,
-        user_vibe_tags: true,
+        user_interests: { select: { interest_id: true } },
+        user_vibe_tags: { select: { vibe_tag_id: true } },
+        user_activity_preferences: { select: { category_id: true } },
+        user_languages: { select: { language_id: true } },
         community_members: {
           select: {
             community_id: true,
+            communities: {
+              select: {
+                category: true,
+                custom_category: true,
+              },
+            },
           },
         },
       },
@@ -275,29 +367,30 @@ export async function getHomeFeedData(userId: string) {
     }),
   ]);
 
+  const currentMatchUser = toMatchableUser(currentUser);
+
   const people = peopleCandidates
     .map((person) => {
-      const interestMatchCount = person.user_interests.filter((interest) =>
-        userInterestIds.includes(interest.interest_id),
-      ).length;
-      const vibeMatchCount = person.user_vibe_tags.filter((tag) =>
-        userVibeTagIds.includes(tag.vibe_tag_id),
-      ).length;
-      const sharedCommunityCount = person.community_members.filter((membership) =>
-        joinedCommunityIds.includes(membership.community_id),
-      ).length;
-      const sameCity = person.profiles?.city && userCity && person.profiles.city === userCity;
-      const sameCountry = person.profiles?.country && userCountry && person.profiles.country === userCountry;
+      const match = calculateUserMatchScore(currentMatchUser, toMatchableUser(person));
+      const sharedCommunityCount = match.breakdown.sharedCommunities;
+      const sharedInterestCount = match.breakdown.sharedInterests;
+      const locationLabel =
+        person.profiles?.city && person.profiles?.country
+          ? `${person.profiles.city}, ${person.profiles.country}`
+          : person.profiles?.city || person.profiles?.country || null;
 
       return {
         id: person.id,
         username: person.username,
         profiles: person.profiles,
-        score:
-          interestMatchCount * 3 +
-          vibeMatchCount * 2 +
-          sharedCommunityCount * 4 +
-          (sameCity ? 4 : sameCountry ? 1 : 0),
+        matchScore: match.percentage,
+        score: match.percentage,
+        matchContext:
+          sharedCommunityCount > 0
+            ? `${sharedCommunityCount} shared ${sharedCommunityCount === 1 ? "community" : "communities"}`
+            : sharedInterestCount > 0
+              ? `${sharedInterestCount} shared ${sharedInterestCount === 1 ? "interest" : "interests"}`
+              : locationLabel || "Suggested from your wider SyncUp network",
       };
     })
     .sort((a, b) => b.score - a.score)
@@ -427,7 +520,8 @@ export async function getHomeFeedData(userId: string) {
 
 async function getProfilePageDataForTarget(viewerId: string, targetUserId: string) {
   const inviteEligibleAuthorIds = await getInviteEligibleAuthorIds(viewerId);
-  const [user, posts, likedPostRows, savedPostRows, followerRows, followingRows, viewerFollow] = await Promise.all([
+  const meetupFeedbackDelegate = getMeetupFeedbackDelegate();
+  const [user, viewerUser, posts, likedPostRows, savedPostRows, followerRows, followingRows, followerUsers, followingUsers, viewerFollowingRows, viewerFollow, trustFeedbackRows] = await Promise.all([
     prisma.users.findUnique({
       where: { id: targetUserId },
       include: {
@@ -440,6 +534,16 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
         user_vibe_tags: {
           include: {
             vibe_tags: true,
+          },
+        },
+        user_languages: {
+          select: {
+            language_id: true,
+          },
+        },
+        user_activity_preferences: {
+          select: {
+            category_id: true,
           },
         },
         communities: {
@@ -459,7 +563,17 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
             role: true,
             joined_at: true,
             communities: {
-              include: {
+              select: {
+                id: true,
+                owner_id: true,
+                name: true,
+                slug: true,
+                description: true,
+                city: true,
+                country: true,
+                created_at: true,
+                category: true,
+                custom_category: true,
                 _count: {
                   select: {
                     community_members: true,
@@ -498,6 +612,37 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
         },
       },
     }),
+    prisma.users.findUnique({
+      where: { id: viewerId },
+      include: {
+        profiles: true,
+        user_interests: { select: { interest_id: true } },
+        user_vibe_tags: { select: { vibe_tag_id: true } },
+        user_languages: { select: { language_id: true } },
+        user_activity_preferences: { select: { category_id: true } },
+        community_members: {
+          select: {
+            community_id: true,
+            communities: {
+              select: {
+                category: true,
+                custom_category: true,
+              },
+            },
+          },
+        },
+        follows_follows_follower_idTousers: {
+          select: {
+            following_id: true,
+          },
+        },
+        follows_follows_following_idTousers: {
+          select: {
+            follower_id: true,
+          },
+        },
+      },
+    }),
     prisma.posts.findMany({
       where: getVisiblePostsWhere(viewerId, inviteEligibleAuthorIds, {
         author_id: targetUserId,
@@ -532,18 +677,6 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
       orderBy: { created_at: "desc" },
       take: 20,
     }),
-    prisma.post_likes.findMany({
-      where: {
-        user_id: { not: targetUserId },
-        posts: {
-          author_id: targetUserId,
-        },
-      },
-      distinct: ["user_id"],
-      select: {
-        user_id: true,
-      },
-    }),
     prisma.follows.findMany({
       where: {
         following_id: targetUserId,
@@ -560,6 +693,60 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
         following_id: true,
       },
     }),
+    prisma.follows.findMany({
+      where: {
+        following_id: targetUserId,
+      },
+      include: {
+        users_follows_follower_idTousers: {
+          include: {
+            profiles: {
+              select: {
+                full_name: true,
+                avatar_url: true,
+                bio: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    }),
+    prisma.follows.findMany({
+      where: {
+        follower_id: targetUserId,
+      },
+      include: {
+        users_follows_following_idTousers: {
+          include: {
+            profiles: {
+              select: {
+                full_name: true,
+                avatar_url: true,
+                bio: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    }),
+    viewerId === targetUserId
+      ? Promise.resolve<{
+          following_id: string;
+        }[]>([])
+      : prisma.follows.findMany({
+          where: {
+            follower_id: viewerId,
+          },
+          select: {
+            following_id: true,
+          },
+        }),
     viewerId === targetUserId
       ? Promise.resolve(null)
       : prisma.follows.findUnique({
@@ -570,6 +757,25 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
             },
           },
         }),
+    meetupFeedbackDelegate
+      ? safeFindManyMeetupFeedback({
+      where: {
+        rated_user_id: targetUserId,
+      },
+      select: {
+        rater_user_id: true,
+        quick_disposition: true,
+        respectful_score: true,
+        friendly_score: true,
+        profile_accuracy_score: true,
+        safety_score: true,
+        reliability_score: true,
+        moderation_status: true,
+        public_caution_candidate: true,
+        internal_risk_score: true,
+      },
+    }, "loading profile trust feedback")
+      : Promise.resolve([]),
   ]);
 
   if (!user) {
@@ -592,22 +798,86 @@ async function getProfilePageDataForTarget(viewerId: string, targetUserId: strin
       (activity) => !user.activities.some((createdActivity) => createdActivity.id === activity.id),
     ),
   ];
+  const viewerFollowingIds = new Set(
+    viewerId === targetUserId
+      ? followingRows.map((row) => row.following_id)
+      : viewerFollowingRows.map((row) => row.following_id),
+  );
+  const matchScore =
+    viewerUser && viewerId !== targetUserId
+      ? calculateUserMatchScore(
+          toMatchableUser(viewerUser),
+          toMatchableUser({
+            id: user.id,
+            profiles: user.profiles,
+            user_interests: user.user_interests.map((entry) => ({ interest_id: entry.interests.id })),
+            user_vibe_tags: user.user_vibe_tags.map((entry) => ({ vibe_tag_id: entry.vibe_tags.id })),
+            user_languages: user.user_languages,
+            user_activity_preferences: user.user_activity_preferences,
+            community_members: user.community_members.map((entry) => ({
+              community_id: entry.community_id,
+              communities: {
+                category: entry.communities.category,
+                custom_category: entry.communities.custom_category,
+              },
+            })),
+          }),
+        ).percentage
+      : null;
+  const cautionState = computeProfileCautionState(
+    trustFeedbackRows.map((entry) => ({
+      raterUserId: entry.rater_user_id,
+      quickDisposition: entry.quick_disposition,
+      respectfulScore: entry.respectful_score,
+      friendlyScore: entry.friendly_score,
+      profileAccuracyScore: entry.profile_accuracy_score,
+      safetyScore: entry.safety_score,
+      reliabilityScore: entry.reliability_score,
+      moderationStatus: entry.moderation_status,
+      publicCautionCandidate: entry.public_caution_candidate,
+      internalRiskScore: entry.internal_risk_score,
+    })),
+  );
+  const followers = followerUsers
+    .map((row) => row.users_follows_follower_idTousers)
+    .filter((relatedUser): relatedUser is NonNullable<typeof relatedUser> => Boolean(relatedUser))
+    .map((relatedUser) => ({
+      id: relatedUser.id,
+      username: relatedUser.username,
+      profile: relatedUser.profiles,
+      isFollowedByViewer: viewerFollowingIds.has(relatedUser.id),
+    }));
+  const following = followingUsers
+    .map((row) => row.users_follows_following_idTousers)
+    .filter((relatedUser): relatedUser is NonNullable<typeof relatedUser> => Boolean(relatedUser))
+    .map((relatedUser) => ({
+      id: relatedUser.id,
+      username: relatedUser.username,
+      profile: relatedUser.profiles,
+      isFollowedByViewer: viewerFollowingIds.has(relatedUser.id),
+    }));
 
   return {
     user: {
       ...user,
       profile: user.profiles,
       isFollowedByViewer: Boolean(viewerFollow),
+      matchScore,
+      cautionBanner: cautionState.showCaution
+        ? "Use caution when meeting. This account has received safety-related reports."
+        : null,
     },
     posts,
     likedPosts: likedPostRows.map((row) => row.posts),
     savedPosts: savedPostRows.map((row) => row.posts),
     communities,
     activities,
+    followers,
+    following,
     stats: {
       posts: posts.length,
-      followers: followerRows.length,
-      following: followingRows.length,
+      followers: followers.length,
+      following: following.length,
       communities: communities.length,
       activities: activities.length,
     },
@@ -807,7 +1077,8 @@ export async function getCommunityChatPageData(userId: string, communitySlug: st
 }
 
 export async function getActivityPageData(userId: string) {
-  const [notifications, people, communities, activities] = await Promise.all([
+  const meetupFeedbackDelegate = getMeetupFeedbackDelegate();
+  const [notifications, people, communities, activities, feedbackPromptActivities] = await Promise.all([
     prisma.notifications.findMany({
       where: {
         user_id: userId,
@@ -867,7 +1138,65 @@ export async function getActivityPageData(userId: string) {
       orderBy: { created_at: "desc" },
       take: 4,
     }),
+    prisma.activities.findMany({
+      where: {
+        status: {
+          not: activity_status.CANCELLED,
+        },
+        start_time: {
+          lt: new Date(),
+        },
+        activity_participants: {
+          some: {
+            user_id: userId,
+          },
+        },
+      },
+      include: {
+        activity_participants: {
+          include: {
+            users: {
+              include: {
+                profiles: {
+                  select: {
+                    full_name: true,
+                    avatar_url: true,
+                    bio: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        start_time: "desc",
+      },
+      take: 8,
+    }),
   ]);
+
+  const feedbackRows =
+    meetupFeedbackDelegate && feedbackPromptActivities.length > 0
+      ? await safeFindManyMeetupFeedback({
+          where: {
+            rater_user_id: userId,
+            activity_id: {
+              in: feedbackPromptActivities.map((activity) => activity.id),
+            },
+          },
+          select: {
+            activity_id: true,
+            rated_user_id: true,
+          },
+        }, "loading feedback prompt activity rows")
+      : [];
+  const ratedUserIdsByActivity = feedbackRows.reduce<Map<string, Set<string>>>((accumulator, row) => {
+    const ratedUserIds = accumulator.get(row.activity_id) ?? new Set<string>();
+    ratedUserIds.add(row.rated_user_id);
+    accumulator.set(row.activity_id, ratedUserIds);
+    return accumulator;
+  }, new Map());
 
   return {
     notifications,
@@ -878,6 +1207,29 @@ export async function getActivityPageData(userId: string) {
     })),
     communities,
     activities,
+    feedbackPrompts: feedbackPromptActivities
+      .map((activity) => {
+        const alreadyRated = ratedUserIdsByActivity.get(activity.id) ?? new Set<string>();
+        const targets = activity.activity_participants
+          .filter((participant) => participant.user_id !== userId)
+          .filter((participant) => !alreadyRated.has(participant.user_id))
+          .map((participant) => ({
+            id: participant.users.id,
+            username: participant.users.username,
+            name: participant.users.profiles?.full_name ?? participant.users.username,
+            avatarUrl: participant.users.profiles?.avatar_url ?? null,
+            bio: participant.users.profiles?.bio ?? null,
+          }));
+
+        return {
+          activityId: activity.id,
+          activityTitle: activity.title,
+          activityStartsAt: activity.start_time,
+          participantCount: activity.activity_participants.length,
+          targets,
+        };
+      })
+      .filter((activity) => activity.targets.length > 0),
   };
 }
 
@@ -1072,6 +1424,7 @@ type ExploreGridItem =
       description: string;
       meta: string[];
       tags: string[];
+      matchScore: number;
     };
 
 export type ExplorePageData = {
@@ -1105,6 +1458,7 @@ export type ExplorePageData = {
     avatarUrl: string | null;
     bio: string;
     context: string;
+    matchScore: number;
   }[];
 };
 
@@ -1224,7 +1578,28 @@ export async function getExplorePageData(
       user_interests: { select: { interest_id: true } },
       user_vibe_tags: { select: { vibe_tag_id: true } },
       user_activity_preferences: { select: { category_id: true } },
-      community_members: { select: { community_id: true } },
+      user_languages: { select: { language_id: true } },
+      community_members: {
+        select: {
+          community_id: true,
+          communities: {
+            select: {
+              category: true,
+              custom_category: true,
+            },
+          },
+        },
+      },
+      follows_follows_follower_idTousers: {
+        select: {
+          following_id: true,
+        },
+      },
+      follows_follows_following_idTousers: {
+        select: {
+          follower_id: true,
+        },
+      },
     },
   });
 
@@ -1310,11 +1685,25 @@ export async function getExplorePageData(
         profiles: true,
         user_interests: { select: { interest_id: true } },
         user_vibe_tags: { select: { vibe_tag_id: true } },
-        community_members: { select: { community_id: true } },
+        user_activity_preferences: { select: { category_id: true } },
+        user_languages: { select: { language_id: true } },
+        community_members: {
+          select: {
+            community_id: true,
+            communities: {
+              select: {
+                category: true,
+                custom_category: true,
+              },
+            },
+          },
+        },
       },
       take: 24,
     }),
   ]);
+
+  const currentMatchUser = currentUser ? toMatchableUser(currentUser) : null;
 
   const rankedPhotos = photoPosts
     .map((post) => {
@@ -1424,12 +1813,17 @@ export async function getExplorePageData(
 
   const rankedPeople = people
     .map((person) => {
-      const sharedInterests = person.user_interests.filter((item) => userInterestIds.has(item.interest_id)).length;
-      const sharedVibes = person.user_vibe_tags.filter((item) => userVibeIds.has(item.vibe_tag_id)).length;
-      const sharedCommunities = person.community_members.filter((item) => joinedCommunityIds.has(item.community_id)).length;
-      const sameCity = Boolean(person.profiles?.city && userCity && person.profiles.city === userCity);
-      const sameCountry = Boolean(person.profiles?.country && userCountry && person.profiles.country === userCountry);
-      const score = sharedInterests * 6 + sharedVibes * 4 + sharedCommunities * 7 + (sameCity ? 8 : sameCountry ? 2 : 0);
+      const match = currentMatchUser
+        ? calculateUserMatchScore(currentMatchUser, toMatchableUser(person))
+        : { percentage: 8, breakdown: null };
+      const sharedInterests = match.breakdown?.sharedInterests ?? 0;
+      const sharedCommunities = match.breakdown?.sharedCommunities ?? 0;
+      const sharedLanguages = match.breakdown?.sharedLanguages ?? 0;
+      const score = match.percentage;
+      const locationLabel =
+        person.profiles?.city && person.profiles?.country
+          ? `${person.profiles.city}, ${person.profiles.country}`
+          : person.profiles?.city || person.profiles?.country || "Discoverable profile";
 
       return {
         score,
@@ -1442,10 +1836,17 @@ export async function getExplorePageData(
           subtitle: `@${person.username}`,
           description: person.profiles?.bio ?? "Open to meeting people with similar interests.",
           meta: [
-            sharedCommunities > 0 ? `${sharedCommunities} shared communities` : sameCity ? person.profiles?.city ?? "Nearby" : "Discoverable profile",
-            sharedInterests > 0 ? `${sharedInterests} shared interests` : person.profiles?.country ?? "SyncUp",
+            sharedCommunities > 0
+              ? `${sharedCommunities} shared ${sharedCommunities === 1 ? "community" : "communities"}`
+              : sharedInterests > 0
+                ? `${sharedInterests} shared ${sharedInterests === 1 ? "interest" : "interests"}`
+                : locationLabel,
+            sharedLanguages > 0
+              ? `${sharedLanguages} shared ${sharedLanguages === 1 ? "language" : "languages"}`
+              : person.profiles?.country ?? "SyncUp",
           ],
           tags: getExploreThemeTags([person.profiles?.bio, person.profiles?.city, person.profiles?.country]),
+          matchScore: match.percentage,
         },
       };
     })
@@ -1511,6 +1912,7 @@ export async function getExplorePageData(
       avatarUrl: person.imageUrl,
       bio: person.description,
       context: person.meta[0] ?? "Discoverable profile",
+      matchScore: person.matchScore,
     })),
   };
 }

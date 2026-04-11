@@ -3,6 +3,8 @@ export type ProfileUser = {
   username: string;
   created_at: Date;
   isFollowedByViewer: boolean;
+  matchScore?: number | null;
+  cautionBanner?: string | null;
   profile: {
     full_name: string;
     bio: string | null;
@@ -52,6 +54,20 @@ export type ProfilePost = {
   post_likes: { user_id: string }[];
 };
 
+export type MeetupFeedbackPrompt = {
+  activityId: string;
+  activityTitle: string;
+  activityStartsAt: Date;
+  participantCount: number;
+  targets: {
+    id: string;
+    username: string;
+    name: string;
+    avatarUrl: string | null;
+    bio: string | null;
+  }[];
+};
+
 export type ProfileCommunity = {
   id: string;
   name: string;
@@ -91,4 +107,15 @@ export type ProfileStats = {
   following: number;
   communities: number;
   activities: number;
+};
+
+export type ProfileFollowListUser = {
+  id: string;
+  username: string;
+  profile: {
+    full_name: string;
+    avatar_url: string | null;
+    bio: string | null;
+  } | null;
+  isFollowedByViewer: boolean;
 };

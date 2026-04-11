@@ -1,28 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, MapPin, Pencil, Share2, Sparkles } from "lucide-react";
+import { AlertTriangle, CalendarDays, MapPin, Pencil, Share2, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { getInitials } from "@/lib/utils";
 import { ProfileFollowControls } from "@/components/profile/profile-follow-controls";
-import { ProfileStats, ProfileUser } from "@/components/profile/types";
+import { FollowListModal } from "@/components/profile/follow-list-modal";
+import { MatchBadge } from "@/components/match-badge";
+import { ProfileFollowListUser, ProfileStats, ProfileUser } from "@/components/profile/types";
 
 type Props = {
   user: ProfileUser;
   stats: ProfileStats;
+  followers: ProfileFollowListUser[];
+  following: ProfileFollowListUser[];
   isOwner: boolean;
   followAction?: (targetUserId: string) => Promise<{ ok: boolean; message?: string }>;
   unfollowAction?: (targetUserId: string) => Promise<{ ok: boolean; message?: string }>;
+  removeFollowerAction?: (followerUserId: string) => Promise<{ ok: boolean; message?: string }>;
 };
 
 function formatJoinedDate(date: Date) {
   return new Intl.DateTimeFormat("en", { month: "short", year: "numeric" }).format(date);
 }
 
-export function ProfileHeader({ user, stats, isOwner, followAction, unfollowAction }: Props) {
+export function ProfileHeader({
+  user,
+  stats,
+  followers,
+  following,
+  isOwner,
+  followAction,
+  unfollowAction,
+  removeFollowerAction,
+}: Props) {
   const displayName = user.profile?.full_name ?? user.username;
   const location = [user.profile?.city, user.profile?.country].filter(Boolean).join(", ");
   const [followersCount, setFollowersCount] = useState(stats.followers);
+  const [followingCount, setFollowingCount] = useState(stats.following);
+  const [followersList, setFollowersList] = useState(followers);
+  const [followingList, setFollowingList] = useState(following);
+  const [openListMode, setOpenListMode] = useState<"followers" | "following" | null>(null);
   const tags = [
     ...user.user_interests.slice(0, 3).map((entry) => entry.interests.name),
     ...user.user_vibe_tags.slice(0, 2).map((entry) => entry.vibe_tags.name),
@@ -53,7 +71,10 @@ export function ProfileHeader({ user, stats, isOwner, followAction, unfollowActi
             </div>
 
             <div className="pb-1">
-              <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">{displayName}</h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">{displayName}</h1>
+                {user.matchScore !== null && user.matchScore !== undefined ? <MatchBadge score={user.matchScore} /> : null}
+              </div>
               <p className="mt-1 text-sm text-muted-foreground">@{user.username}</p>
             </div>
           </div>
@@ -93,6 +114,14 @@ export function ProfileHeader({ user, stats, isOwner, followAction, unfollowActi
         </div>
 
         <div className="mt-5 max-w-3xl">
+          {user.cautionBanner ? (
+            <div className="mb-4 rounded-2xl border border-amber-300/18 bg-amber-400/10 px-4 py-3 text-sm text-amber-50">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <p className="leading-6">{user.cautionBanner}</p>
+              </div>
+            </div>
+          ) : null}
           <p className="text-sm leading-7 text-slate-200">
             {user.profile?.bio ||
               "Building real connections through casual posts, community discovery, and spontaneous plans around the city."}
@@ -129,18 +158,53 @@ export function ProfileHeader({ user, stats, isOwner, followAction, unfollowActi
         <div className="mt-6 grid gap-3 border-t border-white/8 pt-5 sm:grid-cols-5">
           {[
             { label: "Posts", value: stats.posts },
-            { label: "Followers", value: followersCount },
-            { label: "Following", value: stats.following },
+            { label: "Followers", value: followersCount, clickable: true, onClick: () => setOpenListMode("followers") },
+            { label: "Following", value: followingCount, clickable: true, onClick: () => setOpenListMode("following") },
             { label: "Communities", value: stats.communities },
             { label: "Activities", value: stats.activities },
-          ].map((stat) => (
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3" key={stat.label}>
-              <p className="text-xl font-semibold text-white">{stat.value}</p>
-              <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{stat.label}</p>
-            </div>
-          ))}
+          ].map((stat) =>
+            stat.clickable ? (
+              <button
+                className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-white/14 hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300/35"
+                key={stat.label}
+                onClick={stat.onClick}
+                type="button"
+              >
+                <p className="text-xl font-semibold text-white">{stat.value}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{stat.label}</p>
+              </button>
+            ) : (
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3" key={stat.label}>
+                <p className="text-xl font-semibold text-white">{stat.value}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{stat.label}</p>
+              </div>
+            ),
+          )}
         </div>
       </div>
+
+      <FollowListModal
+        isOpen={openListMode === "followers"}
+        isOwner={isOwner}
+        mode="followers"
+        onClose={() => setOpenListMode(null)}
+        onCountChange={setFollowersCount}
+        onUsersChange={setFollowersList}
+        removeFollowerAction={removeFollowerAction}
+        title="Followers"
+        users={followersList}
+      />
+      <FollowListModal
+        isOpen={openListMode === "following"}
+        isOwner={isOwner}
+        mode="following"
+        onClose={() => setOpenListMode(null)}
+        onCountChange={setFollowingCount}
+        onUsersChange={setFollowingList}
+        title="Following"
+        unfollowAction={unfollowAction}
+        users={followingList}
+      />
     </section>
   );
 }

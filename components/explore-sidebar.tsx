@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { CalendarDays, Sparkles, Users, Waves } from "lucide-react";
+import { CalendarDays, Sparkles, Users } from "lucide-react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
 import { getCommunityCategoryLabel } from "@/lib/community-categories";
+import { MatchBadge } from "@/components/match-badge";
 
 type Person = {
   id: string;
   username: string;
+  matchScore: number;
+  matchContext: string;
   profiles: {
     full_name: string;
     bio: string | null;
@@ -108,29 +111,37 @@ export function ExploreSidebar({ people, communities, activities }: Props) {
         {activeTab === "people" ? (
           people.length > 0 ? (
             people.slice(0, 4).map((person) => (
-              <Link
-                key={person.id}
-                href={`/profile/${person.username}`}
-                className="block rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/15"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-indigo-500/20 text-sm font-semibold text-white">
-                    {person.profiles?.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img alt={person.profiles.full_name ?? person.username} src={person.profiles.avatar_url} className="h-full w-full object-cover" />
-                    ) : (
-                      getInitials(person.profiles?.full_name ?? person.username)
-                    )}
+                <Link
+                  key={person.id}
+                  href={`/profile/${person.username}`}
+                  className="block overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/15"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-indigo-500/20 text-sm font-semibold text-white">
+                      {person.profiles?.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img alt={person.profiles.full_name ?? person.username} src={person.profiles.avatar_url} className="h-full w-full object-cover" />
+                      ) : (
+                        getInitials(person.profiles?.full_name ?? person.username)
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-white">{person.profiles?.full_name ?? person.username}</p>
+                          <p className="truncate text-xs text-muted-foreground">@{person.username}</p>
+                        </div>
+                        <MatchBadge score={person.matchScore} compact />
+                      </div>
+                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-300">
+                        {person.profiles?.bio || "Active in your area and ready to connect."}
+                      </p>
+                      <p className="mt-3 text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                        {person.matchContext}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-white">{person.profiles?.full_name ?? person.username}</p>
-                    <p className="truncate text-xs text-muted-foreground">@{person.username}</p>
-                  </div>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-slate-300 line-clamp-2">
-                  {person.profiles?.bio || "Active in your area and ready to connect."}
-                </p>
-              </Link>
+                </Link>
             ))
           ) : (
             <EmptyPanel

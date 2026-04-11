@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { Users } from "lucide-react";
 import { getInitials } from "@/lib/utils";
+import { MatchBadge } from "@/components/match-badge";
 
 type Person = {
   id: string;
   username: string;
+  matchScore: number;
+  matchContext: string;
   profiles: {
     full_name: string;
     bio: string | null;
@@ -30,35 +33,41 @@ export function SuggestedPeopleCard({ people }: { people: Person[] }) {
       <div className="relative mt-4 space-y-4">
         {people.length > 0 ? (
           people.map((person) => (
-            <Link
-              className="block rounded-3xl border border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
-              href={`/profile/${person.username}`}
-              key={person.id}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-indigo-500/30 text-sm font-semibold text-white">
-                  {person.profiles?.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      alt={person.profiles.full_name ?? person.username}
-                      className="h-full w-full object-cover"
-                      src={person.profiles.avatar_url}
-                    />
-                  ) : (
-                    getInitials(person.profiles?.full_name ?? person.username)
-                  )}
+              <Link
+                className="block overflow-hidden rounded-3xl border border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] p-4 shadow-[0_8px_24px_rgba(15,23,42,0.2)] transition-all duration-200 hover:-translate-y-0.5 hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
+                href={`/profile/${person.username}`}
+                key={person.id}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-indigo-500/30 text-sm font-semibold text-white">
+                      {person.profiles?.avatar_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          alt={person.profiles.full_name ?? person.username}
+                          className="h-full w-full object-cover"
+                          src={person.profiles.avatar_url}
+                        />
+                      ) : (
+                        getInitials(person.profiles?.full_name ?? person.username)
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-50">
+                        {person.profiles?.full_name ?? person.username}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">@{person.username}</p>
+                    </div>
+                  </div>
+                  <MatchBadge score={person.matchScore} compact />
                 </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-50">
-                    {person.profiles?.full_name ?? person.username}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">@{person.username}</p>
-                </div>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                {person.profiles?.bio || "This person is new here and still shaping their profile."}
-              </p>
-            </Link>
+                <p className="mt-3 text-sm leading-6 text-slate-300">
+                  {person.profiles?.bio || "This person is new here and still shaping their profile."}
+                </p>
+                <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                  {person.matchContext}
+                </p>
+              </Link>
           ))
         ) : (
           <div className="rounded-2xl border border-dashed border-indigo-300/14 bg-[linear-gradient(180deg,rgba(99,102,241,0.08),rgba(255,255,255,0.02))] p-4">

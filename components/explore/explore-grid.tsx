@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { CalendarDays, Compass, MapPin, Search, Sparkles, Users } from "lucide-react";
+import { CalendarDays, Compass, MapPin, Search, Sparkles } from "lucide-react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
 import type { ExplorePageData } from "@/server/queries";
+import { MatchBadge } from "@/components/match-badge";
 
 type Props = {
   data: ExplorePageData;
@@ -169,6 +170,7 @@ function ExploreTile({
               </span>
             ) : null}
           </div>
+          {item.type === "person" ? <MatchBadge score={item.matchScore} compact /> : null}
         </div>
 
         <div className="space-y-2">
@@ -410,8 +412,13 @@ export function ExploreGrid({ data }: Props) {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-white">{person.name}</p>
-                    <p className="truncate text-xs text-slate-400">@{person.username}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white">{person.name}</p>
+                        <p className="truncate text-xs text-slate-400">@{person.username}</p>
+                      </div>
+                      <MatchBadge score={person.matchScore} compact />
+                    </div>
                     <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">{person.bio}</p>
                     <p className="mt-2 text-[11px] uppercase tracking-[0.14em] text-slate-500">{person.context}</p>
                   </div>

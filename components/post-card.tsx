@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { LikeButton } from "@/components/post-like-button";
 import { PostCommentsModal } from "@/components/post-comments-modal";
 import { PostActionForm } from "@/components/post-action-form";
@@ -28,6 +29,10 @@ type Props = {
   deleteAction: (state: InteractionState, formData: FormData) => Promise<InteractionState>;
   updateAction: (state: InteractionState, formData: FormData) => Promise<InteractionState>;
 };
+
+function getAuthorProfileHref(username: string) {
+  return `/profile/${username}`;
+}
 
 function TypeBadge({ post }: { post: SyncUpPost }) {
   if (post.type === "invite_post") {
@@ -337,23 +342,32 @@ export function PostCard({
     <article className="group relative overflow-hidden rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(24,32,52,0.94),rgba(11,16,28,0.96))] p-4 shadow-[0_18px_48px_rgba(2,6,23,0.34),0_0_0_1px_rgba(255,255,255,0.02),0_0_28px_rgba(99,102,241,0.06)] transition-all duration-200 hover:scale-[1.01] hover:border-indigo-300/20 hover:shadow-[0_24px_56px_rgba(2,6,23,0.42),0_0_0_1px_rgba(129,140,248,0.08),0_0_36px_rgba(99,102,241,0.1)] sm:p-6">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(129,140,248,0.12),transparent_32%),radial-gradient(circle_at_bottom_left,rgba(56,189,248,0.07),transparent_28%)] opacity-80" />
       <div className="relative flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[linear-gradient(135deg,rgba(99,102,241,0.36),rgba(59,130,246,0.18))] text-sm font-semibold text-white shadow-[0_10px_24px_rgba(15,23,42,0.35)]">
-          {post.author.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img alt={post.author.name} className="h-full w-full object-cover" src={post.author.avatarUrl} />
-          ) : (
-            post.author.name
-              .split(" ")
-              .map((part) => part[0])
-              .join("")
-              .slice(0, 2)
-              .toUpperCase()
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
+        <Link
+          href={getAuthorProfileHref(post.author.username)}
+          className="group/author flex min-w-0 flex-1 items-start gap-4 rounded-2xl -m-2 p-2 transition-colors duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300/35 hover:bg-white/[0.03]"
+          aria-label={`Open ${post.author.name}'s profile`}
+        >
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-[linear-gradient(135deg,rgba(99,102,241,0.36),rgba(59,130,246,0.18))] text-sm font-semibold text-white shadow-[0_10px_24px_rgba(15,23,42,0.35)]">
+            {post.author.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img alt={post.author.name} className="h-full w-full object-cover" src={post.author.avatarUrl} />
+            ) : (
+              post.author.name
+                .split(" ")
+                .map((part) => part[0])
+                .join("")
+                .slice(0, 2)
+                .toUpperCase()
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            <p className="text-[15px] font-bold tracking-tight text-slate-50">{post.author.name}</p>
-            <p className="text-sm font-medium text-muted-foreground">@{post.author.username}</p>
+            <p className="text-[15px] font-bold tracking-tight text-slate-50 transition-colors duration-200 group-hover/author:text-indigo-100">
+              {post.author.name}
+            </p>
+            <p className="text-sm font-medium text-muted-foreground transition-colors duration-200 group-hover/author:text-slate-300">
+              @{post.author.username}
+            </p>
             <span className="text-[11px] text-slate-600">&bull;</span>
             <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
               {formatDistanceToNow(post.createdAt)}
@@ -372,7 +386,8 @@ export function PostCard({
               </p>
             ) : null}
           </div>
-        </div>
+          </div>
+        </Link>
       </div>
 
       <PostBody joinAction={joinAction} post={post} voteAction={voteAction} />

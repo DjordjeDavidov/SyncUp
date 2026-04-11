@@ -4,6 +4,8 @@ import Link from "next/link";
 import { CalendarCheck2, CheckCircle2, Heart, MessageCircle, Sparkles, Trash2, UserPlus, Users } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
+import { MeetupFeedbackPrompt } from "@/components/profile/types";
+import { MeetupFeedbackPanel } from "@/components/activity/meetup-feedback-panel";
 
 type Person = {
   id: string;
@@ -31,6 +33,7 @@ type NotificationRecord = {
     | "FOLLOWED"
     | "ACTIVITY_JOINED"
     | "COMMUNITY_JOINED"
+    | "MEETUP_FEEDBACK_REQUEST"
     | "POST_LIKED"
     | "VERIFICATION_UPDATED"
     | "REPORT_UPDATED";
@@ -74,6 +77,8 @@ type Props = {
   people: Person[];
   communities: Community[];
   activities: Activity[];
+  feedbackPrompts: MeetupFeedbackPrompt[];
+  submitFeedbackAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
 };
 
 type ActivityItem = {
@@ -437,7 +442,15 @@ function Section({
   );
 }
 
-export function ActivityFeed({ currentUser, notifications, people, communities, activities }: Props) {
+export function ActivityFeed({
+  currentUser,
+  notifications,
+  people,
+  communities,
+  activities,
+  feedbackPrompts,
+  submitFeedbackAction,
+}: Props) {
   useEffect(() => {
     const unreadIds = notifications.filter((notification) => !notification.read).map((notification) => notification.id);
 
@@ -484,6 +497,7 @@ export function ActivityFeed({ currentUser, notifications, people, communities, 
 
   return (
     <div className="space-y-6">
+      <MeetupFeedbackPanel prompts={feedbackPrompts} submitFeedbackAction={submitFeedbackAction} />
       <div className="surface-card rounded-2xl border border-white/8 p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>

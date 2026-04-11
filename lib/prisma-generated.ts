@@ -6,4 +6,4 @@ export {
   invite_visibility,
   profile_visibility,
   social_mode,
-} from ".prisma/client";
+} from "@prisma/client";

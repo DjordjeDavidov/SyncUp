@@ -10,7 +10,7 @@ import {
   updateActivityPostAction,
   voteOnPollAction,
 } from "@/actions/feed";
-import { followUserAction, unfollowUserAction } from "@/actions/profile";
+import { followUserAction, removeFollowerAction, unfollowUserAction } from "@/actions/profile";
 import { MobileNav } from "@/components/mobile-nav";
 import { Navbar } from "@/components/navbar";
 import { ProfileContent } from "@/components/profile/profile-content";
@@ -48,7 +48,10 @@ export default async function PublicProfilePage({ params }: Props) {
           <main className="space-y-6">
             <ProfileHeader
               followAction={followUserAction}
+              followers={data.followers}
               isOwner={isOwner}
+              following={data.following}
+              removeFollowerAction={removeFollowerAction}
               stats={data.stats}
               unfollowAction={unfollowUserAction}
               user={data.user}

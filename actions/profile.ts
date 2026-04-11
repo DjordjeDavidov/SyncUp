@@ -656,3 +656,33 @@ export async function unfollowUserAction(targetUserId: string) {
 
   return { ok: true };
 }
+
+export async function removeFollowerAction(followerUserId: string) {
+  const currentUser = await getCurrentUserOrRedirect();
+
+  if (currentUser.id === followerUserId) {
+    return { ok: false, message: "You cannot remove yourself as a follower." };
+  }
+
+  const followerUser = await prisma.users.findUnique({
+    where: { id: followerUserId },
+    select: { id: true, username: true },
+  });
+
+  if (!followerUser) {
+    return { ok: false, message: "That follower could not be found." };
+  }
+
+  await prisma.follows.deleteMany({
+    where: {
+      follower_id: followerUserId,
+      following_id: currentUser.id,
+    },
+  });
+
+  revalidatePath("/profile");
+  revalidatePath(`/profile/${currentUser.username}`);
+  revalidatePath(`/profile/${followerUser.username}`);
+
+  return { ok: true };
+}

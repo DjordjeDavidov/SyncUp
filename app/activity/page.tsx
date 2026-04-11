@@ -1,4 +1,5 @@
 import { logoutAction } from "@/actions/feed";
+import { submitMeetupFeedbackAction } from "@/actions/meetup-feedback";
 import { ActivityFeed } from "@/components/activity/activity-feed";
 import { MobileNav } from "@/components/mobile-nav";
 import { Navbar } from "@/components/navbar";
@@ -18,8 +19,10 @@ export default async function ActivityPage() {
             activities={data.activities}
             communities={data.communities}
             currentUser={currentUser}
+            feedbackPrompts={data.feedbackPrompts}
             notifications={data.notifications}
             people={data.people}
+            submitFeedbackAction={submitMeetupFeedbackAction}
           />
         </div>
         <MobileNav />
