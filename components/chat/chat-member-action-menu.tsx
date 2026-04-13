@@ -11,7 +11,7 @@ type Member = {
   username: string;
   name: string;
   avatar?: string | null;
-  role?: "OWNER" | "MODERATOR" | "MEMBER";
+  role?: "OWNER" | "ADMIN" | "MODERATOR" | "MEMBER";
   isCurrentUser?: boolean;
 };
 

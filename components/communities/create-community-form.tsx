@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
@@ -9,6 +10,7 @@ import {
   ImagePlus,
   Loader2,
   Lock,
+  Pencil,
   Sparkles,
   Upload,
   Users,
@@ -18,11 +20,29 @@ import {
   communityCategoryOptions,
   type CommunityCategoryValue,
 } from "@/lib/community-categories";
-import { getImageUploadError, MAX_COMMUNITY_COVER_SIZE_BYTES } from "@/lib/image-upload";
+import {
+  getImageUploadError,
+  MAX_COMMUNITY_COVER_SIZE_BYTES,
+  MAX_COMMUNITY_ICON_SIZE_BYTES,
+} from "@/lib/image-upload";
 import { FormState } from "@/lib/validation";
+
+type CommunityFormValues = {
+  id?: string;
+  slug?: string;
+  name: string;
+  description: string;
+  category: CommunityCategoryValue | "";
+  customCategory: string;
+  visibility: "PUBLIC" | "PRIVATE";
+  coverUrl?: string | null;
+  iconUrl?: string | null;
+};
 
 type Props = {
   action: (state: FormState, formData: FormData) => Promise<FormState>;
+  mode?: "create" | "edit";
+  initialValues?: Partial<CommunityFormValues>;
 };
 
 const initialState: FormState = {
@@ -64,9 +84,7 @@ function FieldShell({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <label
-        className={`flex flex-col gap-3 rounded-2xl border px-4 py-4 transition-all duration-200 ${surfaceClass(Boolean(error))}`}
-      >
+      <label className={`flex flex-col gap-3 rounded-2xl border px-4 py-4 transition-all duration-200 ${surfaceClass(Boolean(error))}`}>
         <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           <Icon className="h-3.5 w-3.5" />
           {label}
@@ -95,8 +113,6 @@ function CategoryDropdown({
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedOption =
     communityCategoryOptions.find((option) => option.value === value) ?? null;
-  const standardOptions = communityCategoryOptions.filter((option) => option.value !== "custom");
-  const customOption = communityCategoryOptions.find((option) => option.value === "custom");
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -113,16 +129,6 @@ function CategoryDropdown({
       document.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [open]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const selectedIndex = communityCategoryOptions.findIndex((option) => option.value === value);
-    const nextIndex = selectedIndex >= 0 ? selectedIndex : 0;
-    optionRefs.current[nextIndex]?.focus();
-  }, [open, value]);
 
   function selectOption(nextValue: CommunityCategoryValue) {
     onChange(nextValue);
@@ -144,8 +150,8 @@ function CategoryDropdown({
         aria-expanded={open}
         className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-all duration-200 ${
           error
-            ? "border-rose-400/45 bg-rose-500/10 text-rose-50 shadow-[0_0_0_1px_rgba(248,113,113,0.18),0_0_24px_rgba(248,113,113,0.08)]"
-            : "border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] text-slate-100 hover:border-indigo-300/20 hover:bg-indigo-400/5 focus:border-indigo-300/24 focus:bg-white/[0.05] focus:shadow-[0_0_0_1px_rgba(129,140,248,0.12),0_0_24px_rgba(99,102,241,0.08)]"
+            ? "border-rose-400/45 bg-rose-500/10 text-rose-50"
+            : "border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] text-slate-100 hover:border-indigo-300/20 hover:bg-indigo-400/5"
         }`}
         onBlur={(event) => {
           if (!rootRef.current?.contains(event.relatedTarget as Node | null)) {
@@ -169,25 +175,16 @@ function CategoryDropdown({
         <span className={selectedOption ? "text-slate-100" : "text-slate-500"}>
           {selectedOption?.label ?? "Select a category"}
         </span>
-        <ChevronDown
-          className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
-            open ? "rotate-180 text-indigo-200" : ""
-          }`}
-        />
+        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${open ? "rotate-180 text-indigo-200" : ""}`} />
       </button>
 
       <div
         className={`absolute left-0 top-[calc(100%+0.75rem)] z-20 w-full overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(14,20,36,0.98),rgba(9,14,26,0.98))] p-2 shadow-[0_22px_50px_rgba(2,6,23,0.48),0_0_24px_rgba(99,102,241,0.1)] transition-all duration-200 ${
-          open
-            ? "pointer-events-auto translate-y-0 opacity-100"
-            : "pointer-events-none -translate-y-2 opacity-0"
+          open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none -translate-y-2 opacity-0"
         }`}
       >
-        <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2 text-xs uppercase tracking-[0.18em] text-slate-500">
-          Pick one primary category
-        </div>
         <div className="max-h-72 space-y-1 overflow-y-auto pr-1" id="community-category-listbox" role="listbox">
-          {standardOptions.map((option, index) => {
+          {communityCategoryOptions.map((option, index) => {
             const active = option.value === value;
 
             return (
@@ -195,7 +192,7 @@ function CategoryDropdown({
                 aria-selected={active}
                 className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left text-sm transition-all duration-200 ${
                   active
-                    ? "bg-[linear-gradient(135deg,rgba(99,102,241,0.22),rgba(59,130,246,0.14))] text-white shadow-[0_10px_24px_rgba(99,102,241,0.12)]"
+                    ? "bg-[linear-gradient(135deg,rgba(99,102,241,0.22),rgba(59,130,246,0.14))] text-white"
                     : "text-slate-200 hover:bg-white/[0.05] hover:text-slate-50"
                 }`}
                 key={option.value}
@@ -210,12 +207,6 @@ function CategoryDropdown({
                     event.preventDefault();
                     moveFocus(index, -1);
                   }
-
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setOpen(false);
-                    triggerRef.current?.focus();
-                  }
                 }}
                 ref={(element) => {
                   optionRefs.current[index] = element;
@@ -229,48 +220,29 @@ function CategoryDropdown({
             );
           })}
         </div>
-        {customOption ? (
-          <div className="mt-2 border-t border-white/8 pt-2">
-            <button
-              aria-selected={customOption.value === value}
-              className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left text-sm transition-all duration-200 ${
-                customOption.value === value
-                  ? "bg-[linear-gradient(135deg,rgba(99,102,241,0.22),rgba(59,130,246,0.14))] text-white shadow-[0_10px_24px_rgba(99,102,241,0.12)]"
-                  : "text-slate-200 hover:bg-white/[0.05] hover:text-slate-50"
-              }`}
-              onClick={() => selectOption(customOption.value)}
-              type="button"
-            >
-              <div>
-                <p>{customOption.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Add your own category if none of the presets fit
-                </p>
-              </div>
-              {customOption.value === value ? <Check className="h-4 w-4 text-indigo-100" /> : null}
-            </button>
-          </div>
-        ) : null}
       </div>
     </div>
   );
 }
 
-function SubmitButton() {
+function SubmitButton({ mode }: { mode: "create" | "edit" }) {
   const { pending } = useFormStatus();
 
   return (
     <button
-      className="rounded-2xl bg-[linear-gradient(135deg,#6366f1,#8b5cf6)] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(99,102,241,0.28)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_44px_rgba(99,102,241,0.34)] disabled:cursor-not-allowed disabled:opacity-70"
+      className="rounded-2xl bg-[linear-gradient(135deg,#6366f1,#8b5cf6)] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(99,102,241,0.28)] transition-all duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70"
       disabled={pending}
       type="submit"
     >
-      {pending ? "Creating..." : "Create Community"}
+      {pending ? (mode === "create" ? "Creating..." : "Saving...") : mode === "create" ? "Create Community" : "Save Changes"}
     </button>
   );
 }
 
-function CoverUploader({
+function ImageUploader({
+  inputName,
+  label,
+  helper,
   inputRef,
   previewUrl,
   fileName,
@@ -278,7 +250,11 @@ function CoverUploader({
   isPreparing,
   onSelectFile,
   onRemove,
+  shape = "cover",
 }: {
+  inputName: string;
+  label: string;
+  helper: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
   previewUrl: string | null;
   fileName: string | null;
@@ -286,6 +262,7 @@ function CoverUploader({
   isPreparing: boolean;
   onSelectFile: (file: File | null) => Promise<void> | void;
   onRemove: () => void;
+  shape?: "cover" | "icon";
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -308,7 +285,7 @@ function CoverUploader({
       <input
         accept="image/*"
         className="sr-only"
-        name="cover"
+        name={inputName}
         onChange={(event) => void onSelectFile(event.target.files?.[0] ?? null)}
         ref={inputRef}
         type="file"
@@ -317,9 +294,9 @@ function CoverUploader({
       <button
         className={`relative block w-full cursor-pointer overflow-hidden rounded-2xl border border-dashed px-4 py-5 text-left transition-all duration-200 ${
           error
-            ? "border-rose-400/40 bg-rose-500/10 shadow-[0_0_0_1px_rgba(248,113,113,0.18),0_0_24px_rgba(248,113,113,0.08)]"
+            ? "border-rose-400/40 bg-rose-500/10"
             : isDragOver
-              ? "border-indigo-300/28 bg-indigo-400/10 shadow-[0_0_0_1px_rgba(129,140,248,0.16),0_0_28px_rgba(99,102,241,0.12)]"
+              ? "border-indigo-300/28 bg-indigo-400/10"
               : "border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] hover:border-indigo-300/20 hover:bg-indigo-400/5"
         }`}
         onClick={() => inputRef.current?.click()}
@@ -350,22 +327,22 @@ function CoverUploader({
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-100">
-              {previewUrl ? "Cover image ready" : isPreparing ? "Processing cover..." : "Add cover image"}
+              {previewUrl ? `${label} ready` : isPreparing ? `Processing ${label.toLowerCase()}...` : label}
             </p>
             <p className="text-xs text-muted-foreground">
-              {previewUrl
-                ? fileName ?? "Selected cover image"
-                : isDragOver
-                  ? "Drop your cover image here"
-                  : "Click anywhere or drag and drop an image"}
+              {previewUrl ? fileName ?? helper : isDragOver ? "Drop your image here" : helper}
             </p>
           </div>
         </div>
 
         {previewUrl ? (
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-slate-950/50">
+          <div className={`mt-4 overflow-hidden border border-white/8 bg-slate-950/50 ${shape === "icon" ? "h-28 w-28 rounded-3xl" : "rounded-2xl"}`}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img alt="Community cover preview" className="max-h-72 w-full object-cover" src={previewUrl} />
+            <img
+              alt={`${label} preview`}
+              className={shape === "icon" ? "h-full w-full object-cover" : "max-h-72 w-full object-cover"}
+              src={previewUrl}
+            />
           </div>
         ) : null}
       </button>
@@ -396,68 +373,35 @@ function CoverUploader({
   );
 }
 
-export function CreateCommunityForm({ action }: Props) {
+export function CreateCommunityForm({ action, mode = "create", initialValues }: Props) {
+  const router = useRouter();
   const [state, formAction] = useActionState(action, initialState);
-  const [nameValue, setNameValue] = useState("");
-  const [descriptionValue, setDescriptionValue] = useState("");
-  const [categoryValue, setCategoryValue] = useState<CommunityCategoryValue | "">("");
-  const [customCategoryValue, setCustomCategoryValue] = useState("");
-  const [visibilityValue, setVisibilityValue] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
-  const [localCoverError, setLocalCoverError] = useState<string | null>(null);
-  const [isPreparingCover, setIsPreparingCover] = useState(false);
+  const [nameValue, setNameValue] = useState(initialValues?.name ?? "");
+  const [descriptionValue, setDescriptionValue] = useState(initialValues?.description ?? "");
+  const [categoryValue, setCategoryValue] = useState<CommunityCategoryValue | "">(initialValues?.category ?? "");
+  const [customCategoryValue, setCustomCategoryValue] = useState(initialValues?.customCategory ?? "");
+  const [visibilityValue, setVisibilityValue] = useState<"PUBLIC" | "PRIVATE">(initialValues?.visibility ?? "PUBLIC");
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(initialValues?.coverUrl ?? null);
+  const [iconPreviewUrl, setIconPreviewUrl] = useState<string | null>(initialValues?.iconUrl ?? null);
+  const [coverFileName, setCoverFileName] = useState<string | null>(null);
+  const [iconFileName, setIconFileName] = useState<string | null>(null);
+  const [localErrors, setLocalErrors] = useState<Record<string, string | null>>({});
+  const [isPreparing, setIsPreparing] = useState<Record<string, boolean>>({ cover: false, icon: false });
   const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [changedSinceSubmit, setChangedSinceSubmit] = useState<Record<string, boolean>>({});
+  const [removeCover, setRemoveCover] = useState(false);
+  const [removeIcon, setRemoveIcon] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const iconInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-  }, [previewUrl]);
-
-  useEffect(() => {
-    if (!state.success) {
-      return;
+    if (state.success && state.redirectTo) {
+      router.push(state.redirectTo);
+      router.refresh();
     }
-
-    setNameValue("");
-    setDescriptionValue("");
-    setCategoryValue("");
-    setCustomCategoryValue("");
-    setVisibilityValue("PUBLIC");
-    setTouchedFields({});
-    setHasSubmitted(false);
-    setChangedSinceSubmit({});
-    resetCoverState();
-    formRef.current?.reset();
-  }, [state.success]);
-
-  useEffect(() => {
-    if (!state.errors || Object.keys(state.errors).length === 0) {
-      return;
-    }
-
-    setHasSubmitted(true);
-    const focusOrder = ["name", "description", "category", "customCategory", "cover"];
-    const firstField = focusOrder.find((field) => state.errors?.[field]?.[0]);
-
-    if (!firstField) {
-      return;
-    }
-
-    if (firstField === "cover") {
-      coverInputRef.current?.focus();
-      return;
-    }
-
-    formRef.current?.querySelector<HTMLElement>(`[name="${firstField}"]`)?.focus();
-  }, [state.errors]);
+  }, [router, state.redirectTo, state.success]);
 
   function markFieldTouched(field: string) {
     setTouchedFields((current) => (current[field] ? current : { ...current, [field]: true }));
@@ -469,52 +413,63 @@ export function CreateCommunityForm({ action }: Props) {
     }
   }
 
-  function resetCoverState() {
-    setPreviewUrl((currentUrl) => {
-      if (currentUrl) {
-        URL.revokeObjectURL(currentUrl);
-      }
-      return null;
-    });
-    setSelectedFileName(null);
-    setLocalCoverError(null);
-    if (coverInputRef.current) {
-      coverInputRef.current.value = "";
+  function updatePreview(kind: "cover" | "icon", file: File | null, url: string | null) {
+    if (kind === "cover") {
+      setCoverPreviewUrl(url);
+      setCoverFileName(file?.name ?? null);
+      setRemoveCover(false);
+    } else {
+      setIconPreviewUrl(url);
+      setIconFileName(file?.name ?? null);
+      setRemoveIcon(false);
     }
   }
 
-  async function handleSelectedFile(file: File | null) {
-    markFieldTouched("cover");
-    markFieldChanged("cover");
-    setIsPreparingCover(true);
+  async function handleSelectedFile(kind: "cover" | "icon", file: File | null) {
+    markFieldTouched(kind);
+    markFieldChanged(kind);
+    setIsPreparing((current) => ({ ...current, [kind]: true }));
 
     if (!file) {
-      resetCoverState();
-      setIsPreparingCover(false);
+      updatePreview(kind, null, null);
+      setLocalErrors((current) => ({ ...current, [kind]: null }));
+      setIsPreparing((current) => ({ ...current, [kind]: false }));
+      if (kind === "cover") {
+        setRemoveCover(true);
+      } else {
+        setRemoveIcon(true);
+      }
       return;
     }
 
     const error = getImageUploadError(file, {
-      maxSizeBytes: MAX_COMMUNITY_COVER_SIZE_BYTES,
-      label: "Cover image",
+      maxSizeBytes: kind === "cover" ? MAX_COMMUNITY_COVER_SIZE_BYTES : MAX_COMMUNITY_ICON_SIZE_BYTES,
+      label: kind === "cover" ? "Banner image" : "Community icon",
     });
 
     if (error) {
-      resetCoverState();
-      setLocalCoverError(error);
-      setIsPreparingCover(false);
+      setLocalErrors((current) => ({ ...current, [kind]: error }));
+      setIsPreparing((current) => ({ ...current, [kind]: false }));
       return;
     }
 
-    setPreviewUrl((currentUrl) => {
-      if (currentUrl) {
-        URL.revokeObjectURL(currentUrl);
-      }
-      return URL.createObjectURL(file);
-    });
-    setSelectedFileName(file.name);
-    setLocalCoverError(null);
-    setIsPreparingCover(false);
+    setLocalErrors((current) => ({ ...current, [kind]: null }));
+    updatePreview(kind, file, URL.createObjectURL(file));
+    setIsPreparing((current) => ({ ...current, [kind]: false }));
+  }
+
+  function clearImage(kind: "cover" | "icon") {
+    if (kind === "cover" && coverInputRef.current) {
+      coverInputRef.current.value = "";
+      setRemoveCover(true);
+    }
+
+    if (kind === "icon" && iconInputRef.current) {
+      iconInputRef.current.value = "";
+      setRemoveIcon(true);
+    }
+
+    updatePreview(kind, null, null);
   }
 
   const clientErrors: Record<string, string | undefined> = {
@@ -529,7 +484,8 @@ export function CreateCommunityForm({ action }: Props) {
       categoryValue === "custom" && !customCategoryValue.trim()
         ? "Add a custom category name."
         : undefined,
-    cover: localCoverError ?? undefined,
+    cover: localErrors.cover ?? undefined,
+    icon: localErrors.icon ?? undefined,
   };
 
   function getFieldError(field: string) {
@@ -547,45 +503,32 @@ export function CreateCommunityForm({ action }: Props) {
     return clientErrors[field] ?? serverError ?? null;
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    setHasSubmitted(true);
+    setChangedSinceSubmit({});
+
+    const focusOrder = ["name", "description", "category", "customCategory", "icon", "cover"];
+    const firstInvalid = focusOrder.find((field) => clientErrors[field]);
+
+    if (firstInvalid) {
+      event.preventDefault();
+
+      if (firstInvalid === "cover") {
+        coverInputRef.current?.focus();
+      } else if (firstInvalid === "icon") {
+        iconInputRef.current?.focus();
+      } else {
+        formRef.current?.querySelector<HTMLElement>(`[name="${firstInvalid}"]`)?.focus();
+      }
+    }
+  }
+
   const nameError = getFieldError("name");
   const descriptionError = getFieldError("description");
   const categoryError = getFieldError("category");
   const customCategoryError = getFieldError("customCategory");
   const coverError = getFieldError("cover");
-
-  const isFormValid =
-    Boolean(nameValue.trim()) &&
-    descriptionValue.trim().length >= 12 &&
-    Boolean(categoryValue) &&
-    (categoryValue !== "custom" || Boolean(customCategoryValue.trim())) &&
-    !coverError;
-
-  function focusField(field: string) {
-    if (field === "cover") {
-      coverInputRef.current?.focus();
-      return;
-    }
-
-    formRef.current?.querySelector<HTMLElement>(`[name="${field}"]`)?.focus();
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    setHasSubmitted(true);
-    setChangedSinceSubmit({});
-
-    if (isFormValid) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const focusOrder = ["name", "description", "category", "customCategory", "cover"];
-    const firstInvalidField = focusOrder.find((field) => clientErrors[field]);
-
-    if (firstInvalidField) {
-      focusField(firstInvalidField);
-    }
-  }
+  const iconError = getFieldError("icon");
 
   return (
     <form
@@ -594,23 +537,29 @@ export function CreateCommunityForm({ action }: Props) {
       onSubmit={handleSubmit}
       ref={formRef}
     >
+      <input name="currentName" type="hidden" value={initialValues?.name ?? ""} />
+      <input name="removeCover" type="hidden" value={removeCover ? "true" : "false"} />
+      <input name="removeIcon" type="hidden" value={removeIcon ? "true" : "false"} />
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">
-            Create Community
+            {mode === "create" ? "Create Community" : "Edit Community"}
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-            Start a new space on SyncUp
+            {mode === "create" ? "Start a new space on SyncUp" : "Update your community"}
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Build a community around a vibe, interest, or local scene. You&apos;ll become the first admin automatically.
+            {mode === "create"
+              ? "Build a community around a vibe, interest, or local scene. You'll become the owner automatically."
+              : "Keep the community header, details, and discovery info current for members."}
           </p>
         </div>
         <Link
           className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/16 hover:bg-white/8"
-          href="/communities"
+          href={initialValues?.slug ? `/communities/${initialValues.slug}` : "/communities"}
         >
-          Back to Communities
+          {mode === "create" ? "Back to Communities" : "Back to Community"}
         </Link>
       </div>
 
@@ -690,24 +639,45 @@ export function CreateCommunityForm({ action }: Props) {
           <input name="customCategory" type="hidden" value="" />
         )}
 
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            <ImagePlus className="h-3.5 w-3.5" />
-            Cover Image
+        <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <Users className="h-3.5 w-3.5" />
+              Community Icon
+            </div>
+            <ImageUploader
+              error={iconError}
+              fileName={iconFileName}
+              helper="Square image shown as the community avatar"
+              inputName="icon"
+              inputRef={iconInputRef}
+              isPreparing={Boolean(isPreparing.icon)}
+              label="Add icon"
+              onRemove={() => clearImage("icon")}
+              onSelectFile={(file) => handleSelectedFile("icon", file)}
+              previewUrl={iconPreviewUrl}
+              shape="icon"
+            />
           </div>
-          <CoverUploader
-            error={coverError}
-            fileName={selectedFileName}
-            inputRef={coverInputRef}
-            isPreparing={isPreparingCover}
-            onRemove={() => {
-              markFieldTouched("cover");
-              markFieldChanged("cover");
-              resetCoverState();
-            }}
-            onSelectFile={handleSelectedFile}
-            previewUrl={previewUrl}
-          />
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <ImagePlus className="h-3.5 w-3.5" />
+              Banner Image
+            </div>
+            <ImageUploader
+              error={coverError}
+              fileName={coverFileName}
+              helper="Wide header image for the community page"
+              inputName="cover"
+              inputRef={coverInputRef}
+              isPreparing={Boolean(isPreparing.cover)}
+              label="Add banner"
+              onRemove={() => clearImage("cover")}
+              onSelectFile={(file) => handleSelectedFile("cover", file)}
+              previewUrl={coverPreviewUrl}
+            />
+          </div>
         </div>
       </div>
 
@@ -725,9 +695,14 @@ export function CreateCommunityForm({ action }: Props) {
 
       <div className="mt-6 flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Choose a category people can discover now, with room for custom communities too.
+          {mode === "create"
+            ? "Use both images so the community feels complete everywhere across the app."
+            : "Changes update the community header, lists, and chat presence."}
         </p>
-        <SubmitButton />
+        <div className="flex items-center gap-3">
+          {mode === "edit" ? <Pencil className="h-4 w-4 text-slate-400" /> : null}
+          <SubmitButton mode={mode} />
+        </div>
       </div>
     </form>
   );

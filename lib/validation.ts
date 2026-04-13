@@ -6,6 +6,7 @@ export type FormState = {
   message: string;
   errors?: Record<string, string[] | undefined>;
   success?: boolean;
+  redirectTo?: string;
 };
 
 export const registerSchema = z.object({
@@ -112,6 +113,21 @@ const standardPostSchema = basePostSchema.extend({
   }
 });
 
+const alertPostSchema = basePostSchema
+  .extend({
+    postType: z.literal("alert_post"),
+    title: z.string().trim().min(1, "Add an alert title.").max(180, "Title must be 180 characters or less."),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.content?.trim() && !value.hasImage) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "Add the alert details before publishing.",
+      });
+    }
+  });
+
 const invitePostSchema = basePostSchema.extend({
   postType: z.literal("invite_post"),
   title: z.string().trim().min(1, "Add an invite title.").max(180, "Title must be 180 characters or less."),
@@ -149,6 +165,7 @@ const activityPostSchema = basePostSchema.extend({
 
 export const postSchema = z.discriminatedUnion("postType", [
   standardPostSchema,
+  alertPostSchema,
   invitePostSchema,
   pollPostSchema,
   communityPostSchema,

@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, UserMinus, Users, X } from "lucide-react";
-import { getInitials } from "@/lib/utils";
-import { ProfileFollowListUser } from "@/components/profile/types";
+import { CalendarClock, Loader2, UserMinus, Users, X } from "lucide-react";
+import { formatDistanceToNow, getInitials } from "@/lib/utils";
+import { ProfileActivity, ProfileCommunity, ProfileFollowListUser } from "@/components/profile/types";
 
-type Mode = "followers" | "following";
+type Mode = "followers" | "following" | "communities" | "activities";
 
 type Props = {
   mode: Mode;
   isOpen: boolean;
   title: string;
-  users: ProfileFollowListUser[];
+  users?: ProfileFollowListUser[];
+  communities?: ProfileCommunity[];
+  activities?: ProfileActivity[];
   isOwner: boolean;
   onClose: () => void;
   onUsersChange: (users: ProfileFollowListUser[]) => void;
@@ -22,22 +24,37 @@ type Props = {
 };
 
 function getEmptyStateCopy(mode: Mode) {
-  return mode === "followers"
-    ? {
+  switch (mode) {
+    case "followers":
+      return {
         title: "No followers yet",
         description: "When people start following this profile, they will appear here.",
-      }
-    : {
+      };
+    case "following":
+      return {
         title: "Not following anyone yet",
         description: "People this profile follows will appear here.",
       };
+    case "communities":
+      return {
+        title: "No communities yet",
+        description: "Communities this profile creates or joins will appear here.",
+      };
+    case "activities":
+      return {
+        title: "No activities yet",
+        description: "Upcoming plans and joined activities will appear here.",
+      };
+  }
 }
 
 export function FollowListModal({
   mode,
   isOpen,
   title,
-  users,
+  users = [],
+  communities = [],
+  activities = [],
   isOwner,
   onClose,
   onUsersChange,
@@ -75,6 +92,12 @@ export function FollowListModal({
   }
 
   const emptyState = getEmptyStateCopy(mode);
+  const totalCount =
+    mode === "communities"
+      ? communities.length
+      : mode === "activities"
+        ? activities.length
+        : users.length;
 
   function handleAction(targetUser: ProfileFollowListUser) {
     if (!isOwner) {
@@ -122,7 +145,13 @@ export function FollowListModal({
         <div className="flex items-center justify-between border-b border-white/8 px-5 py-4 sm:px-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-indigo-300">{title}</p>
-            <p className="mt-1 text-sm text-slate-400">{users.length} people</p>
+            <p className="mt-1 text-sm text-slate-400">
+              {mode === "communities"
+                ? `${totalCount} communities`
+                : mode === "activities"
+                  ? `${totalCount} activities`
+                  : `${totalCount} people`}
+            </p>
           </div>
           <button
             aria-label={`Close ${title.toLowerCase()} modal`}
@@ -135,7 +164,90 @@ export function FollowListModal({
         </div>
 
         <div className="max-h-[min(68vh,36rem)] overflow-y-auto px-5 py-4 sm:px-6">
-          {users.length > 0 ? (
+          {mode === "communities" ? (
+            communities.length > 0 ? (
+              <div className="space-y-3">
+                {communities.map((community) => (
+                  <Link
+                    className="group block rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300/35"
+                    href={`/communities/${community.slug}`}
+                    key={community.id}
+                    onClick={onClose}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white transition-colors group-hover:text-indigo-100">
+                          {community.name}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-slate-400">
+                          {[community.city, community.country].filter(Boolean).join(", ") || "Global community"}
+                        </p>
+                      </div>
+                      <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-right">
+                        <p className="text-sm font-semibold text-white">{community._count.community_members}</p>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">members</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-300">
+                      {community.description || "A public space for updates, conversation, and plans."}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] px-6 py-10 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-indigo-200">
+                  <Users className="h-6 w-6" />
+                </div>
+                <p className="mt-4 text-base font-semibold text-white">{emptyState.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{emptyState.description}</p>
+              </div>
+            )
+          ) : mode === "activities" ? (
+            activities.length > 0 ? (
+              <div className="space-y-3">
+                {activities.map((activity) => (
+                  <Link
+                    className="group block rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300/35"
+                    href={`/activity/${activity.id}`}
+                    key={activity.id}
+                    onClick={onClose}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-white transition-colors group-hover:text-indigo-100">
+                          {activity.title}
+                        </p>
+                        <p className="mt-1 truncate text-xs text-slate-400">
+                          {[activity.city, activity.country].filter(Boolean).join(", ") || "Location to be announced"}
+                        </p>
+                        {activity.communities ? (
+                          <p className="mt-2 text-xs uppercase tracking-[0.14em] text-sky-200">
+                            {activity.communities.name}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-right">
+                        <CalendarClock className="ml-auto h-4 w-4 text-sky-200" />
+                        <p className="mt-2 text-xs text-slate-300">{formatDistanceToNow(activity.start_time)}</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-300">
+                      {activity.description || "Open the activity to see the full details and participants."}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] px-6 py-10 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-indigo-200">
+                  <CalendarClock className="h-6 w-6" />
+                </div>
+                <p className="mt-4 text-base font-semibold text-white">{emptyState.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{emptyState.description}</p>
+              </div>
+            )
+          ) : users.length > 0 ? (
             <div className="space-y-3">
               {users.map((user) => {
                 const isRowPending = isPending && activeUserId === user.id;

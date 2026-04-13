@@ -24,11 +24,25 @@ type Props = {
   params: Promise<{
     username: string;
   }>;
+  searchParams?: Promise<{
+    tab?: string;
+  }>;
 };
 
-export default async function PublicProfilePage({ params }: Props) {
+export default async function PublicProfilePage({ params, searchParams }: Props) {
   const currentUser = await getCurrentUserOrRedirect();
   const { username } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const requestedTab = resolvedSearchParams?.tab;
+  const initialTab =
+    requestedTab === "posts" ||
+    requestedTab === "media" ||
+    requestedTab === "invites" ||
+    requestedTab === "communities" ||
+    requestedTab === "activity" ||
+    requestedTab === "saved"
+      ? requestedTab
+      : "all";
   const data = await getProfilePageDataByUsername(currentUser.id, username);
 
   if (!data) {
@@ -47,6 +61,8 @@ export default async function PublicProfilePage({ params }: Props) {
         <div className="grid gap-6 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
           <main className="space-y-6">
             <ProfileHeader
+              activities={data.activities}
+              communities={data.communities}
               followAction={followUserAction}
               followers={data.followers}
               isOwner={isOwner}
@@ -62,6 +78,7 @@ export default async function PublicProfilePage({ params }: Props) {
               commentAction={createCommentAction}
               communities={data.communities}
               deleteAction={deleteOwnPostAction}
+              initialTab={initialTab}
               isOwner={isOwner}
               joinAction={joinActivityPostAction}
               likeAction={toggleLikeAction}
@@ -79,6 +96,7 @@ export default async function PublicProfilePage({ params }: Props) {
               activities={data.activities}
               communities={data.communities}
               posts={data.posts}
+              profileBasePath={isOwner ? "/profile" : `/profile/${data.user.username}`}
               user={data.user}
             />
           </aside>

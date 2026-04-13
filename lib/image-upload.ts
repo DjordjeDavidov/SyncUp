@@ -1,5 +1,6 @@
 export const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
 export const MAX_COMMUNITY_COVER_SIZE_BYTES = 8 * 1024 * 1024;
+export const MAX_COMMUNITY_ICON_SIZE_BYTES = 4 * 1024 * 1024;
 
 export function getImageUploadError(
   file: Pick<File, "size" | "type"> | null | undefined,

@@ -1,0 +1,7 @@
+ALTER TYPE "community_member_role" ADD VALUE IF NOT EXISTS 'ADMIN';
+
+ALTER TYPE "post_type" ADD VALUE IF NOT EXISTS 'ALERT_POST';
+
+ALTER TABLE "communities"
+ADD COLUMN IF NOT EXISTS "icon_url" TEXT,
+ADD COLUMN IF NOT EXISTS "icon_path" TEXT;

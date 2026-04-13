@@ -81,6 +81,41 @@ export async function createPostAction(_: FormState, formData: FormData): Promis
   }
 
   try {
+    let targetCommunity:
+      | {
+          id: string;
+          slug: string;
+          community_members: {
+            role: string;
+          }[];
+        }
+      | null = null;
+
+    if (parsed.data.communityId) {
+      targetCommunity = await prisma.communities.findUnique({
+        where: { id: parsed.data.communityId },
+        select: {
+          id: true,
+          slug: true,
+          community_members: {
+            where: {
+              user_id: currentUser.id,
+            },
+            select: {
+              role: true,
+            },
+          },
+        },
+      });
+
+      if (!targetCommunity || targetCommunity.community_members.length === 0) {
+        return {
+          message: "You need to be a community member to publish there.",
+          success: false,
+        };
+      }
+    }
+
     const inviteVisibility =
       parsed.data.inviteVisibility === "followers_friends"
         ? invite_visibility.FOLLOWERS_FRIENDS
@@ -137,6 +172,7 @@ export async function createPostAction(_: FormState, formData: FormData): Promis
         const createdActivity = await prisma.activities.create({
           data: {
             creator_id: currentUser.id,
+            community_id: targetCommunity?.id,
             title: parsed.data.title ?? "Untitled activity",
             description: parsed.data.content ?? "",
             location_text: parsed.data.locationText,
@@ -163,12 +199,14 @@ export async function createPostAction(_: FormState, formData: FormData): Promis
     await prisma.posts.create({
       data: {
         author_id: currentUser.id,
-        community_id: parsed.data.postType === "community_post" ? parsed.data.communityId : undefined,
+        community_id: targetCommunity?.id ?? (parsed.data.postType === "community_post" ? parsed.data.communityId : undefined),
         activity_id: activityId,
         invite_visibility:
           parsed.data.postType === "invite_post" ? inviteVisibility : invite_visibility.PUBLIC,
         post_type:
-          parsed.data.postType === "invite_post"
+          parsed.data.postType === "alert_post"
+            ? "ALERT_POST"
+            : parsed.data.postType === "invite_post"
             ? "INVITE_POST"
             : parsed.data.postType === "poll_post"
               ? "POLL_POST"
@@ -176,6 +214,8 @@ export async function createPostAction(_: FormState, formData: FormData): Promis
                 ? "COMMUNITY_POST"
                 : parsed.data.postType === "activity_post"
                   ? "ACTIVITY_POST"
+                  : targetCommunity?.id
+                    ? "COMMUNITY_POST"
                   : "STANDARD_POST",
         title: parsed.data.title,
         content: parsed.data.content ?? "",
@@ -200,14 +240,18 @@ export async function createPostAction(_: FormState, formData: FormData): Promis
             : undefined,
       },
     });
+
+    refreshPostSurfaces();
+
+    if (targetCommunity?.slug) {
+      revalidatePath(`/communities/${targetCommunity.slug}`);
+    }
   } catch (error) {
     return {
       message: error instanceof Error ? error.message : "Could not create your post.",
       success: false,
     };
   }
-
-  refreshPostSurfaces();
 
   return {
     message: "Published successfully.",

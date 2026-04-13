@@ -2,7 +2,7 @@ import { SyncUpPost } from "@/lib/post-types";
 
 type PostRecord = {
   id: string;
-  post_type: "STANDARD_POST" | "INVITE_POST" | "POLL_POST" | "COMMUNITY_POST" | "ACTIVITY_POST";
+  post_type: "STANDARD_POST" | "ALERT_POST" | "INVITE_POST" | "POLL_POST" | "COMMUNITY_POST" | "ACTIVITY_POST";
   invite_visibility?: "PUBLIC" | "FOLLOWERS_FRIENDS" | null;
   title: string | null;
   content: string;
@@ -65,6 +65,8 @@ type PostRecord = {
 
 function toPostType(postType: PostRecord["post_type"]): SyncUpPost["type"] {
   switch (postType) {
+    case "ALERT_POST":
+      return "alert_post";
     case "INVITE_POST":
       return "invite_post";
     case "POLL_POST":
@@ -168,6 +170,14 @@ export function mapPostRecordToPost(post: PostRecord, currentUserId: string): Sy
           visibility:
             post.invite_visibility === "FOLLOWERS_FRIENDS" ? "followers_friends" : "public",
           status: derivedActivityStatus,
+        },
+      };
+    case "alert_post":
+      return {
+        ...base,
+        type: "alert_post",
+        alert: {
+          title: post.title ?? "Community alert",
         },
       };
     case "poll_post": {
