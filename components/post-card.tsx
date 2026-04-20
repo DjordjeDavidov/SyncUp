@@ -67,6 +67,14 @@ function TypeBadge({ post }: { post: SyncUpPost }) {
     );
   }
 
+  if (post.type === "alert_post") {
+    return (
+      <span className="rounded-xl border border-amber-300/18 bg-amber-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200">
+        Alert
+      </span>
+    );
+  }
+
   return (
     <span className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
       Post
@@ -234,6 +242,22 @@ function PostBody({
             <PollOptions post={post} voteAction={voteAction} />
           </div>
         </>
+      );
+    case "alert_post":
+      return (
+        <div className="mt-5 rounded-2xl border border-amber-300/12 bg-[linear-gradient(180deg,rgba(52,34,12,0.28),rgba(11,16,28,0.98))] p-5">
+          <div className="flex items-center gap-2">
+            <TypeBadge post={post} />
+          </div>
+          <h3 className="mt-4 text-xl font-semibold text-white">{post.alert.title}</h3>
+          <p className="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-slate-200">{post.content}</p>
+          {post.imageUrl ? (
+            <div className="relative mt-5 overflow-hidden rounded-2xl border border-white/8 bg-slate-950/40">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt="Alert post attachment" className="max-h-[420px] w-full object-cover transition duration-500 group-hover:scale-[1.02]" src={post.imageUrl} />
+            </div>
+          ) : null}
+        </div>
       );
     case "community_post":
       return (

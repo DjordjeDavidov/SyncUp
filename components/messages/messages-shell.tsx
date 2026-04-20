@@ -28,6 +28,7 @@ type CommunityChat = {
   id: string;
   slug: string;
   name: string;
+  iconUrl?: string | null;
   coverUrl: string | null;
   memberCount: number;
 };
@@ -160,13 +161,13 @@ export function MessagesShell({ conversations: initialConversations, communityCh
                 communityChats.map((community) => (
                   <Link
                     key={community.id}
-                    href={`/communities/${community.slug}/chat`}
+                    href={`/chats/${community.id}`}
                     className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-left transition-all duration-200 hover:border-white/20 hover:bg-white/[0.05]"
                   >
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900 text-sm font-semibold text-white">
-                      {community.coverUrl ? (
+                      {community.iconUrl || community.coverUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img alt={community.name} className="h-full w-full object-cover" src={community.coverUrl} />
+                        <img alt={community.name} className="h-full w-full object-cover" src={community.iconUrl || community.coverUrl || ""} />
                       ) : (
                         community.name
                           .split(" ")

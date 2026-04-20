@@ -7,13 +7,15 @@ import { getInitials } from "@/lib/utils";
 import { ProfileFollowControls } from "@/components/profile/profile-follow-controls";
 import { FollowListModal } from "@/components/profile/follow-list-modal";
 import { MatchBadge } from "@/components/match-badge";
-import { ProfileFollowListUser, ProfileStats, ProfileUser } from "@/components/profile/types";
+import { ProfileActivity, ProfileCommunity, ProfileFollowListUser, ProfileStats, ProfileUser } from "@/components/profile/types";
 
 type Props = {
   user: ProfileUser;
   stats: ProfileStats;
   followers: ProfileFollowListUser[];
   following: ProfileFollowListUser[];
+  communities: ProfileCommunity[];
+  activities: ProfileActivity[];
   isOwner: boolean;
   followAction?: (targetUserId: string) => Promise<{ ok: boolean; message?: string }>;
   unfollowAction?: (targetUserId: string) => Promise<{ ok: boolean; message?: string }>;
@@ -29,6 +31,8 @@ export function ProfileHeader({
   stats,
   followers,
   following,
+  communities,
+  activities,
   isOwner,
   followAction,
   unfollowAction,
@@ -40,7 +44,7 @@ export function ProfileHeader({
   const [followingCount, setFollowingCount] = useState(stats.following);
   const [followersList, setFollowersList] = useState(followers);
   const [followingList, setFollowingList] = useState(following);
-  const [openListMode, setOpenListMode] = useState<"followers" | "following" | null>(null);
+  const [openListMode, setOpenListMode] = useState<"followers" | "following" | "communities" | "activities" | null>(null);
   const tags = [
     ...user.user_interests.slice(0, 3).map((entry) => entry.interests.name),
     ...user.user_vibe_tags.slice(0, 2).map((entry) => entry.vibe_tags.name),
@@ -160,8 +164,8 @@ export function ProfileHeader({
             { label: "Posts", value: stats.posts },
             { label: "Followers", value: followersCount, clickable: true, onClick: () => setOpenListMode("followers") },
             { label: "Following", value: followingCount, clickable: true, onClick: () => setOpenListMode("following") },
-            { label: "Communities", value: stats.communities },
-            { label: "Activities", value: stats.activities },
+            { label: "Communities", value: stats.communities, clickable: true, onClick: () => setOpenListMode("communities") },
+            { label: "Activities", value: stats.activities, clickable: true, onClick: () => setOpenListMode("activities") },
           ].map((stat) =>
             stat.clickable ? (
               <button
@@ -204,6 +208,26 @@ export function ProfileHeader({
         title="Following"
         unfollowAction={unfollowAction}
         users={followingList}
+      />
+      <FollowListModal
+        communities={communities}
+        isOpen={openListMode === "communities"}
+        isOwner={isOwner}
+        mode="communities"
+        onClose={() => setOpenListMode(null)}
+        onCountChange={() => {}}
+        onUsersChange={() => {}}
+        title="Communities"
+      />
+      <FollowListModal
+        activities={activities}
+        isOpen={openListMode === "activities"}
+        isOwner={isOwner}
+        mode="activities"
+        onClose={() => setOpenListMode(null)}
+        onCountChange={() => {}}
+        onUsersChange={() => {}}
+        title="Activities"
       />
     </section>
   );

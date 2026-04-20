@@ -74,7 +74,7 @@ type ChatDetail = {
       username: string;
       name: string;
       avatar?: string | null;
-      role?: "OWNER" | "MODERATOR" | "MEMBER";
+      role?: "OWNER" | "ADMIN" | "MODERATOR" | "MEMBER";
       isCurrentUser?: boolean;
     }>;
     sharedMedia?: Array<{
@@ -89,6 +89,7 @@ type ChatDetail = {
     profileLocation?: string;
     isBlocked?: boolean;
     isBlockedByCurrentUser?: boolean;
+    communitySlug?: string;
     canAddMembers?: boolean;
     canLeave?: boolean;
   };

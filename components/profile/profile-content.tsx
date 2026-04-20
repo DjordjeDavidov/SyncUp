@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import {
   CalendarClock,
@@ -17,7 +18,7 @@ import { InteractionState } from "@/lib/interaction-state";
 import { SyncUpPost } from "@/lib/post-types";
 import { formatDistanceToNow } from "@/lib/utils";
 
-type TabKey = "all" | "posts" | "media" | "invites" | "activity" | "saved";
+type TabKey = "all" | "posts" | "media" | "invites" | "communities" | "activity" | "saved";
 
 type TimelineItem =
   | {
@@ -55,6 +56,7 @@ type Props = {
   cancelAction: (state: InteractionState, formData: FormData) => Promise<InteractionState>;
   deleteAction: (state: InteractionState, formData: FormData) => Promise<InteractionState>;
   updateAction: (state: InteractionState, formData: FormData) => Promise<InteractionState>;
+  initialTab?: TabKey;
 };
 
 const TAB_CONFIG: { key: TabKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -62,7 +64,8 @@ const TAB_CONFIG: { key: TabKey; label: string; icon: React.ComponentType<{ clas
   { key: "posts", label: "Posts", icon: MessageSquareText },
   { key: "media", label: "Media", icon: ImageIcon },
   { key: "invites", label: "Invites", icon: Sparkles },
-  { key: "activity", label: "Activity", icon: CalendarClock },
+  { key: "communities", label: "Communities", icon: Users },
+  { key: "activity", label: "Activities", icon: CalendarClock },
   { key: "saved", label: "Saved", icon: SquareLibrary },
 ];
 
@@ -105,7 +108,10 @@ function LoadingState() {
 function TimelineCard({ item }: { item: TimelineItem }) {
   if (item.kind === "community") {
     return (
-      <article className="overflow-hidden rounded-2xl border border-emerald-300/12 bg-[linear-gradient(180deg,rgba(20,28,36,0.98),rgba(11,16,28,0.98))] p-6 shadow-[0_18px_40px_rgba(2,6,23,0.26)]">
+      <Link
+        className="block overflow-hidden rounded-2xl border border-emerald-300/12 bg-[linear-gradient(180deg,rgba(20,28,36,0.98),rgba(11,16,28,0.98))] p-6 shadow-[0_18px_40px_rgba(2,6,23,0.26)] transition-all duration-200 hover:-translate-y-0.5 hover:border-emerald-300/24 hover:bg-[linear-gradient(180deg,rgba(24,34,42,0.98),rgba(13,19,31,0.98))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/35"
+        href={`/communities/${item.community.slug}`}
+      >
         <div className="flex items-center gap-2">
           <span className="rounded-xl border border-emerald-300/16 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-200">
             Community
@@ -124,7 +130,7 @@ function TimelineCard({ item }: { item: TimelineItem }) {
             {[item.community.city, item.community.country].filter(Boolean).join(", ") || "Open to everyone"}
           </span>
         </div>
-      </article>
+      </Link>
     );
   }
 
@@ -132,7 +138,10 @@ function TimelineCard({ item }: { item: TimelineItem }) {
     const activity = item.activity;
 
     return (
-      <article className="overflow-hidden rounded-2xl border border-sky-300/12 bg-[linear-gradient(180deg,rgba(18,28,42,0.98),rgba(11,16,28,0.98))] p-6 shadow-[0_18px_40px_rgba(2,6,23,0.26)]">
+      <Link
+        className="block overflow-hidden rounded-2xl border border-sky-300/12 bg-[linear-gradient(180deg,rgba(18,28,42,0.98),rgba(11,16,28,0.98))] p-6 shadow-[0_18px_40px_rgba(2,6,23,0.26)] transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-300/24 hover:bg-[linear-gradient(180deg,rgba(22,33,47,0.98),rgba(13,19,31,0.98))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/35"
+        href={`/activity/${activity.id}`}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-xl border border-sky-300/16 bg-sky-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-200">
             Activity
@@ -167,7 +176,7 @@ function TimelineCard({ item }: { item: TimelineItem }) {
             {[activity.city, activity.country].filter(Boolean).join(", ") || "Location to be announced"}
           </span>
         </div>
-      </article>
+      </Link>
     );
   }
 
@@ -190,8 +199,9 @@ export function ProfileContent({
   cancelAction,
   deleteAction,
   updateAction,
+  initialTab = "all",
 }: Props) {
-  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [selectedMedia, setSelectedMedia] = useState<{ src: string; caption: string } | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -255,6 +265,11 @@ export function ProfileContent({
         return {
           kind: "posts" as const,
           items: invitePosts,
+        };
+      case "communities":
+        return {
+          kind: "mixed" as const,
+          items: communityTimelineItems,
         };
       case "activity":
         return {
@@ -344,6 +359,14 @@ export function ProfileContent({
             icon={CalendarClock}
             title="No activity content yet"
             description="Meetups, plans, and activity updates tied to this profile will appear here."
+          />
+        );
+      case "communities":
+        return (
+          <EmptyState
+            icon={Users}
+            title="No communities yet"
+            description="Communities this profile creates or joins will appear here once they become visible to you."
           />
         );
       case "saved":

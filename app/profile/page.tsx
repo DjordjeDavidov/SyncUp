@@ -20,9 +20,26 @@ import {
 } from "@/actions/feed";
 import { followUserAction, removeFollowerAction, unfollowUserAction } from "@/actions/profile";
 
-export default async function ProfilePage() {
+type Props = {
+  searchParams?: Promise<{
+    tab?: string;
+  }>;
+};
+
+export default async function ProfilePage({ searchParams }: Props) {
   const currentUser = await getCurrentUserOrRedirect();
   const data = await getProfilePageData(currentUser.id);
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const requestedTab = resolvedSearchParams?.tab;
+  const initialTab =
+    requestedTab === "posts" ||
+    requestedTab === "media" ||
+    requestedTab === "invites" ||
+    requestedTab === "communities" ||
+    requestedTab === "activity" ||
+    requestedTab === "saved"
+      ? requestedTab
+      : "all";
 
   if (!data) {
     redirect("/home");
@@ -39,6 +56,8 @@ export default async function ProfilePage() {
         <div className="grid gap-6 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
           <main className="space-y-6">
             <ProfileHeader
+              activities={data.activities}
+              communities={data.communities}
               followAction={followUserAction}
               followers={data.followers}
               isOwner
@@ -54,6 +73,7 @@ export default async function ProfilePage() {
               commentAction={createCommentAction}
               communities={data.communities}
               deleteAction={deleteOwnPostAction}
+              initialTab={initialTab}
               isOwner
               joinAction={joinActivityPostAction}
               likeAction={toggleLikeAction}
@@ -71,6 +91,7 @@ export default async function ProfilePage() {
               activities={data.activities}
               communities={data.communities}
               posts={data.posts}
+              profileBasePath="/profile"
               user={data.user}
             />
           </aside>

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CalendarClock, Camera, ChevronRight, Sparkles } from "lucide-react";
 import { ProfileActivity, ProfileCommunity, ProfilePost, ProfileUser } from "@/components/profile/types";
 import { formatDistanceToNow } from "@/lib/utils";
@@ -7,9 +8,10 @@ type Props = {
   communities: ProfileCommunity[];
   activities: ProfileActivity[];
   posts: ProfilePost[];
+  profileBasePath?: string;
 };
 
-export function ProfileSidebar({ user, communities, activities, posts }: Props) {
+export function ProfileSidebar({ user, communities, activities, posts, profileBasePath = user.username ? `/profile/${user.username}` : "/profile" }: Props) {
   const topCommunities = communities.slice(0, 3);
   const upcomingActivities = activities
     .filter((activity) => activity.start_time.getTime() >= Date.now())
@@ -79,11 +81,23 @@ export function ProfileSidebar({ user, communities, activities, posts }: Props) 
               Top Communities
             </h2>
           </div>
+          {communities.length > 0 ? (
+            <Link
+              className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200 transition-colors hover:text-emerald-100"
+              href={`${profileBasePath}?tab=communities`}
+            >
+              View all
+            </Link>
+          ) : null}
         </div>
         <div className="mt-4 space-y-3">
           {topCommunities.length > 0 ? (
             topCommunities.map((community) => (
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4" key={community.id}>
+              <Link
+                className="block rounded-2xl border border-white/8 bg-white/[0.03] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/14 hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/35"
+                href={`/communities/${community.slug}`}
+                key={community.id}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-white">{community.name}</p>
@@ -96,7 +110,7 @@ export function ProfileSidebar({ user, communities, activities, posts }: Props) 
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
                   {community.description || "A fresh space for shared interests, plans, and local conversation."}
                 </p>
-              </div>
+              </Link>
             ))
           ) : (
             <p className="rounded-2xl border border-dashed border-white/8 px-4 py-4 text-sm text-muted-foreground">
@@ -112,17 +126,29 @@ export function ProfileSidebar({ user, communities, activities, posts }: Props) 
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.28em] text-sky-300">
             Upcoming Activity
           </h2>
+          {activities.length > 0 ? (
+            <Link
+              className="ml-auto text-xs font-semibold uppercase tracking-[0.18em] text-sky-200 transition-colors hover:text-sky-100"
+              href={`${profileBasePath}?tab=activity`}
+            >
+              View all
+            </Link>
+          ) : null}
         </div>
         <div className="mt-4 space-y-3">
           {upcomingActivities.length > 0 ? (
             upcomingActivities.map((activity) => (
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4" key={activity.id}>
+              <Link
+                className="block rounded-2xl border border-white/8 bg-white/[0.03] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/14 hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/35"
+                href={`/activity/${activity.id}`}
+                key={activity.id}
+              >
                 <p className="text-sm font-semibold text-white">{activity.title}</p>
                 <p className="mt-2 text-xs text-muted-foreground">{formatDistanceToNow(activity.start_time)}</p>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
                   {[activity.city, activity.country].filter(Boolean).join(", ") || "Location to be announced"}
                 </p>
-              </div>
+              </Link>
             ))
           ) : (
             <p className="rounded-2xl border border-dashed border-white/8 px-4 py-4 text-sm text-muted-foreground">

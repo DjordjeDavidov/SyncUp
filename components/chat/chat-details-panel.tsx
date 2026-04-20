@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AlertTriangle, Ban, ExternalLink, ImageIcon, Info, LogOut, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Ban, ExternalLink, ImageIcon, Info, Settings2, Users, X } from "lucide-react";
 import { ChatMemberActionMenu } from "./chat-member-action-menu";
 
 export type SharedMediaItem = {
@@ -27,7 +27,7 @@ export type ChatDetailsData = {
     username: string;
     name: string;
     avatar?: string | null;
-    role?: "OWNER" | "MODERATOR" | "MEMBER";
+    role?: "OWNER" | "ADMIN" | "MODERATOR" | "MEMBER";
     isCurrentUser?: boolean;
   }>;
   sharedMedia?: SharedMediaItem[];
@@ -37,6 +37,7 @@ export type ChatDetailsData = {
   isBlocked?: boolean;
   isBlockedByCurrentUser?: boolean;
   chatId?: string;
+  communitySlug?: string;
   canAddMembers?: boolean;
   canLeave?: boolean;
 };
@@ -187,11 +188,18 @@ export function ChatDetailsPanel({
         ) : null}
 
         <div className="space-y-3 p-6">
-          {data.canAddMembers ? (
-            <button className="flex w-full items-center gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 transition-colors hover:bg-white/[0.06]">
-              <UserPlus className="h-5 w-5 text-slate-400" />
-              <span className="text-sm text-white">Add members</span>
-            </button>
+          {data.type === "community" && data.communitySlug ? (
+            <Link className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 transition-colors hover:bg-white/[0.06]" href={`/communities/${data.communitySlug}`}>
+              <Users className="h-5 w-5 text-slate-300" />
+              <span className="text-sm text-white">Open community page</span>
+            </Link>
+          ) : null}
+
+          {data.canAddMembers && data.communitySlug ? (
+            <Link className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 transition-colors hover:bg-white/[0.06]" href={`/communities/${data.communitySlug}#members-management`}>
+              <Settings2 className="h-5 w-5 text-slate-300" />
+              <span className="text-sm text-white">Manage members</span>
+            </Link>
           ) : null}
 
           {data.type === "dm" && onBlockChat ? (
@@ -228,12 +236,6 @@ export function ChatDetailsPanel({
             </button>
           ) : null}
 
-          {data.canLeave ? (
-            <button className="flex w-full items-center gap-3 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 transition-colors hover:bg-red-500/20">
-              <LogOut className="h-5 w-5 text-red-400" />
-              <span className="text-sm text-red-300">{data.type === "community" ? "Leave community" : "Leave chat"}</span>
-            </button>
-          ) : null}
         </div>
       </div>
 

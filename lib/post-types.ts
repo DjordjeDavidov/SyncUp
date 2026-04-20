@@ -1,5 +1,6 @@
 export const postTypeValues = [
   "standard_post",
+  "alert_post",
   "invite_post",
   "poll_post",
   "community_post",
@@ -56,6 +57,13 @@ export type BasePost = {
 
 export type StandardPost = BasePost & {
   type: "standard_post";
+};
+
+export type AlertPost = BasePost & {
+  type: "alert_post";
+  alert: {
+    title: string;
+  };
 };
 
 export type InvitePost = BasePost & {
@@ -119,6 +127,7 @@ export type ActivityPost = BasePost & {
 
 export type SyncUpPost =
   | StandardPost
+  | AlertPost
   | InvitePost
   | PollPost
   | CommunityPost

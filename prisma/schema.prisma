@@ -83,6 +83,8 @@ model communities {
   city                String?               @db.VarChar(100)
   country             String?               @db.VarChar(100)
   visibility          community_visibility  @default(PUBLIC)
+  icon_url            String?
+  icon_path           String?
   cover_url           String?
   cover_path          String?
   created_at          DateTime              @default(now()) @db.Timestamptz(6)
@@ -536,6 +538,7 @@ enum activity_status {
 
 enum community_member_role {
   OWNER
+  ADMIN
   MODERATOR
   MEMBER
 }
@@ -565,6 +568,7 @@ enum post_type {
   POLL_POST
   COMMUNITY_POST
   ACTIVITY_POST
+  ALERT_POST
 }
 
 enum profile_visibility {
