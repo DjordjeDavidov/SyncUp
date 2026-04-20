@@ -2186,6 +2186,139 @@ export async function getUnreadNavCounts(userId: string) {
   };
 }
 
+async function getDirectMessageInteractionData(userId: string, messages: Array<{
+  id: string;
+  reply_to_message_id: string | null;
+}>) {
+  const messageIds = messages.map((message) => message.id);
+  const replyIds = Array.from(
+    new Set(
+      messages
+        .map((message) => message.reply_to_message_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  const [likes, replyMessages] = await Promise.all([
+    messageIds.length > 0
+      ? prisma.direct_message_likes.findMany({
+          where: {
+            message_id: {
+              in: messageIds,
+            },
+          },
+          select: {
+            message_id: true,
+            user_id: true,
+          },
+        })
+      : Promise.resolve([]),
+    replyIds.length > 0
+      ? prisma.direct_messages.findMany({
+          where: {
+            id: {
+              in: replyIds,
+            },
+          },
+          select: {
+            id: true,
+            sender_id: true,
+            message: true,
+            image_url: true,
+            is_deleted: true,
+            users: {
+              include: {
+                profiles: true,
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const likeCountByMessageId = new Map<string, number>();
+  const likedByCurrentUserIds = new Set<string>();
+
+  for (const like of likes) {
+    likeCountByMessageId.set(like.message_id, (likeCountByMessageId.get(like.message_id) ?? 0) + 1);
+    if (like.user_id === userId) {
+      likedByCurrentUserIds.add(like.message_id);
+    }
+  }
+
+  return {
+    likeCountByMessageId,
+    likedByCurrentUserIds,
+    replyByMessageId: new Map(replyMessages.map((message) => [message.id, message])),
+  };
+}
+
+async function getCommunityMessageInteractionData(userId: string, messages: Array<{
+  id: string;
+  reply_to_message_id: string | null;
+}>) {
+  const messageIds = messages.map((message) => message.id);
+  const replyIds = Array.from(
+    new Set(
+      messages
+        .map((message) => message.reply_to_message_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  const [likes, replyMessages] = await Promise.all([
+    messageIds.length > 0
+      ? prisma.community_chat_message_likes.findMany({
+          where: {
+            message_id: {
+              in: messageIds,
+            },
+          },
+          select: {
+            message_id: true,
+            user_id: true,
+          },
+        })
+      : Promise.resolve([]),
+    replyIds.length > 0
+      ? prisma.community_chat_messages.findMany({
+          where: {
+            id: {
+              in: replyIds,
+            },
+          },
+          select: {
+            id: true,
+            sender_id: true,
+            message: true,
+            is_deleted: true,
+            users: {
+              include: {
+                profiles: true,
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const likeCountByMessageId = new Map<string, number>();
+  const likedByCurrentUserIds = new Set<string>();
+
+  for (const like of likes) {
+    likeCountByMessageId.set(like.message_id, (likeCountByMessageId.get(like.message_id) ?? 0) + 1);
+    if (like.user_id === userId) {
+      likedByCurrentUserIds.add(like.message_id);
+    }
+  }
+
+  return {
+    likeCountByMessageId,
+    likedByCurrentUserIds,
+    replyByMessageId: new Map(replyMessages.map((message) => [message.id, message])),
+  };
+}
+
 export async function getUnifiedChatDetails(userId: string, chatId: string) {
   const [hasDmReadState, hasDmMedia, hasDmHiddenState] = await Promise.all([
     ensureDirectThreadLastReadAtColumn(),
@@ -2228,33 +2361,6 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
       messages: {
         orderBy: { created_at: "asc" },
         include: {
-          likes: {
-            where: {
-              user_id: userId,
-            },
-            select: {
-              user_id: true,
-            },
-          },
-          _count: {
-            select: {
-              likes: true,
-            },
-          },
-          reply_to_message: {
-            select: {
-              id: true,
-              sender_id: true,
-              message: true,
-              image_url: true,
-              is_deleted: true,
-              users: {
-                include: {
-                  profiles: true,
-                },
-              },
-            },
-          },
           users: {
             include: {
               profiles: true,
@@ -2266,6 +2372,7 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
   });
 
   if (dmThread) {
+    const dmInteractions = await getDirectMessageInteractionData(userId, dmThread.messages);
     const currentParticipant = dmThread.participants.find((item) => item.user_id === userId);
     const participant = dmThread.participants.find((item) => item.user_id !== userId)?.users;
     const recipientParticipant = dmThread.participants.find((item) => item.user_id !== userId);
@@ -2333,29 +2440,35 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
       title: participant.profiles?.full_name ?? participant.username,
       description: participant.profiles?.bio ?? undefined,
       avatar: participant.profiles?.avatar_url ?? null,
-      messages: dmThread.messages.map((message) => ({
-        id: message.id,
-        senderId: message.sender_id,
-        senderName: message.users.profiles?.full_name ?? message.users.username,
-        senderAvatar: message.users.profiles?.avatar_url ?? null,
-        text: message.message,
-        imageUrl: hasDmMedia && "image_url" in message ? message.image_url ?? null : null,
-        isDeleted: "is_deleted" in message ? message.is_deleted : false,
-        likeCount: "_count" in message ? message._count.likes : 0,
-        likedByCurrentUser: "likes" in message ? message.likes.length > 0 : false,
-        replyTo: message.reply_to_message
-          ? {
-              id: message.reply_to_message.id,
-              senderId: message.reply_to_message.sender_id,
-              senderName:
-                message.reply_to_message.users.profiles?.full_name ?? message.reply_to_message.users.username,
-              text: message.reply_to_message.is_deleted ? "Deleted message" : message.reply_to_message.message,
-              imageUrl: message.reply_to_message.is_deleted ? null : message.reply_to_message.image_url ?? null,
-              isDeleted: message.reply_to_message.is_deleted,
-            }
-          : null,
-        createdAt: message.created_at,
-      })),
+      messages: dmThread.messages.map((message) => {
+        const replyMessage = message.reply_to_message_id
+          ? dmInteractions.replyByMessageId.get(message.reply_to_message_id) ?? null
+          : null;
+
+        return {
+          id: message.id,
+          senderId: message.sender_id,
+          senderName: message.users.profiles?.full_name ?? message.users.username,
+          senderAvatar: message.users.profiles?.avatar_url ?? null,
+          text: message.message,
+          imageUrl: hasDmMedia && "image_url" in message ? message.image_url ?? null : null,
+          isDeleted: "is_deleted" in message ? message.is_deleted : false,
+          likeCount: dmInteractions.likeCountByMessageId.get(message.id) ?? 0,
+          likedByCurrentUser: dmInteractions.likedByCurrentUserIds.has(message.id),
+          replyTo: replyMessage
+            ? {
+                id: replyMessage.id,
+                senderId: replyMessage.sender_id,
+                senderName:
+                  replyMessage.users.profiles?.full_name ?? replyMessage.users.username,
+                text: replyMessage.is_deleted ? "Deleted message" : replyMessage.message,
+                imageUrl: replyMessage.is_deleted ? null : replyMessage.image_url ?? null,
+                isDeleted: replyMessage.is_deleted,
+              }
+            : null,
+          createdAt: message.created_at,
+        };
+      }),
       initialScrollTargetMessageId: firstUnreadMessageId,
       seenMessageId,
       canChat: !isBlocked,
@@ -2390,32 +2503,6 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
           messages: {
             orderBy: { created_at: "asc" },
             include: {
-              likes: {
-                where: {
-                  user_id: userId,
-                },
-                select: {
-                  user_id: true,
-                },
-              },
-              _count: {
-                select: {
-                  likes: true,
-                },
-              },
-              reply_to_message: {
-                select: {
-                  id: true,
-                  sender_id: true,
-                  message: true,
-                  is_deleted: true,
-                  users: {
-                    include: {
-                      profiles: true,
-                    },
-                  },
-                },
-              },
               users: {
                 include: {
                   profiles: true,
@@ -2457,6 +2544,7 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
   }
 
   const isMember = community.community_members.length > 0;
+  const communityInteractions = await getCommunityMessageInteractionData(userId, community.community_chat?.messages ?? []);
   const canChat = isMember;
   const userRole = community.community_members[0]?.role;
   const membershipLastReadAt =
@@ -2517,28 +2605,34 @@ export async function getUnifiedChatDetails(userId: string, chatId: string) {
     description: community.description,
     avatar: community.cover_url ?? null,
     messages:
-      community.community_chat?.messages.map((message) => ({
-        id: message.id,
-        senderId: message.users.id,
-        senderName: message.users.profiles?.full_name ?? message.users.username,
-        senderAvatar: message.users.profiles?.avatar_url ?? null,
-        text: message.message,
-        isDeleted: "is_deleted" in message ? message.is_deleted : false,
-        likeCount: "_count" in message ? message._count.likes : 0,
-        likedByCurrentUser: "likes" in message ? message.likes.length > 0 : false,
-        replyTo: message.reply_to_message
-          ? {
-              id: message.reply_to_message.id,
-              senderId: message.reply_to_message.sender_id,
-              senderName:
-                message.reply_to_message.users.profiles?.full_name ?? message.reply_to_message.users.username,
-              text: message.reply_to_message.is_deleted ? "Deleted message" : message.reply_to_message.message,
-              imageUrl: null,
-              isDeleted: message.reply_to_message.is_deleted,
-            }
-          : null,
-        createdAt: message.created_at,
-      })) ?? [],
+      community.community_chat?.messages.map((message) => {
+        const replyMessage = message.reply_to_message_id
+          ? communityInteractions.replyByMessageId.get(message.reply_to_message_id) ?? null
+          : null;
+
+        return {
+          id: message.id,
+          senderId: message.users.id,
+          senderName: message.users.profiles?.full_name ?? message.users.username,
+          senderAvatar: message.users.profiles?.avatar_url ?? null,
+          text: message.message,
+          isDeleted: "is_deleted" in message ? message.is_deleted : false,
+          likeCount: communityInteractions.likeCountByMessageId.get(message.id) ?? 0,
+          likedByCurrentUser: communityInteractions.likedByCurrentUserIds.has(message.id),
+          replyTo: replyMessage
+            ? {
+                id: replyMessage.id,
+                senderId: replyMessage.sender_id,
+                senderName:
+                  replyMessage.users.profiles?.full_name ?? replyMessage.users.username,
+                text: replyMessage.is_deleted ? "Deleted message" : replyMessage.message,
+                imageUrl: null,
+                isDeleted: replyMessage.is_deleted,
+              }
+            : null,
+          createdAt: message.created_at,
+        };
+      }) ?? [],
     initialScrollTargetMessageId: firstUnreadCommunityMessageId,
     canChat,
     details: {
