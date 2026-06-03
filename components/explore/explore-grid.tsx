@@ -415,7 +415,14 @@ export function ExploreGrid({ data }: Props) {
         },
         body: JSON.stringify({ query: trimmedQuery }),
       });
-      const payload = (await response.json()) as { results?: AiSearchResult[]; error?: string };
+      const contentType = response.headers.get("content-type") ?? "";
+      const payload = contentType.includes("application/json")
+        ? ((await response.json()) as { results?: AiSearchResult[]; error?: string })
+        : {
+            error: response.ok
+              ? "AI Search returned an unexpected response."
+              : "AI Search is temporarily unavailable right now.",
+          };
 
       if (!response.ok) {
         throw new Error(payload.error ?? "AI Search is unavailable right now.");
