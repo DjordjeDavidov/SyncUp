@@ -7,6 +7,7 @@ import { FormEvent, useState } from "react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
 import type { ExplorePageData } from "@/server/queries";
 import { MatchBadge } from "@/components/match-badge";
+import { AiSearchPanel } from "@/components/explore/ai-search-panel";
 
 type Props = {
   data: ExplorePageData;
