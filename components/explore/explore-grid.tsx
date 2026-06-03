@@ -3,6 +3,7 @@ import { CalendarDays, Compass, MapPin, Search, Sparkles } from "lucide-react";
 import { formatDistanceToNow, getInitials } from "@/lib/utils";
 import type { ExplorePageData } from "@/server/queries";
 import { MatchBadge } from "@/components/match-badge";
+import { AiSearchPanel } from "@/components/explore/ai-search-panel";
 
 type Props = {
   data: ExplorePageData;
@@ -230,6 +231,13 @@ export function ExploreGrid({ data }: Props) {
               >
                 Explore
               </button>
+              <Link
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-sky-300/18 bg-sky-400/10 px-5 py-3 text-sm font-semibold text-sky-100 transition hover:-translate-y-0.5 hover:border-sky-200/28 hover:bg-sky-400/14"
+                href="#ai-search"
+              >
+                <Sparkles className="h-4 w-4" />
+                AI Search
+              </Link>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -280,6 +288,8 @@ export function ExploreGrid({ data }: Props) {
           </form>
         </div>
       </section>
+
+      <AiSearchPanel />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_320px]">
         <div className="space-y-6 xl:col-span-2">
