@@ -17,6 +17,12 @@ function refreshPostSurfaces() {
   revalidatePath("/profile/[username]", "page");
 }
 
+function refreshActivitySurfaces(activityId: string) {
+  revalidatePath("/activity");
+  revalidatePath(`/activity/${activityId}`);
+  refreshPostSurfaces();
+}
+
 async function getOwnedPostOrThrow(postId: string, userId: string) {
   const post = await prisma.posts.findUnique({
     where: { id: postId },
@@ -538,11 +544,78 @@ export async function joinActivityPostAction(
     });
   }
 
-  refreshPostSurfaces();
+  refreshActivitySurfaces(activity.id);
 
   return {
     status: "success",
     message: "You joined the plan.",
+  };
+}
+
+export async function leaveActivityPostAction(
+  _: InteractionState = initialInteractionState,
+  formData: FormData,
+): Promise<InteractionState> {
+  const currentUser = await getCurrentUserOrRedirect();
+  const activityId = String(formData.get("activityId"));
+
+  const activity = await prisma.activities.findUnique({
+    where: { id: activityId },
+    include: {
+      activity_participants: {
+        select: {
+          user_id: true,
+        },
+      },
+    },
+  });
+
+  if (!activity) {
+    return {
+      status: "error",
+      message: "This plan is no longer available.",
+    };
+  }
+
+  if (activity.creator_id === currentUser.id) {
+    return {
+      status: "error",
+      message: "Creators cannot leave their own plan.",
+    };
+  }
+
+  const isParticipant = activity.activity_participants.some((participant) => participant.user_id === currentUser.id);
+
+  if (!isParticipant) {
+    return {
+      status: "error",
+      message: "You have not joined this plan.",
+    };
+  }
+
+  await prisma.activity_participants.delete({
+    where: {
+      activity_id_user_id: {
+        activity_id: activity.id,
+        user_id: currentUser.id,
+      },
+    },
+  });
+
+  if (activity.status === "FULL") {
+    await prisma.activities.update({
+      where: { id: activity.id },
+      data: {
+        status: "OPEN",
+      },
+    });
+  }
+
+  refreshActivitySurfaces(activity.id);
+
+  return {
+    status: "success",
+    message: "You left the plan.",
   };
 }
 
